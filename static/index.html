@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mountain Rescue Drones</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #171e26; --line: #263241; --text: #e6edf3; --muted: #8b98a8;
+    --accent: #51cf66; --bad: #ff6b6b; --warn: #ffa94d;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 12px 20px; border-bottom: 1px solid var(--line); display: flex; gap: 16px;
+           align-items: baseline; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 18px; }
+  header .sub { color: var(--muted); }
+  #status { margin-left: auto; font-weight: 600; }
+  main { display: grid; grid-template-columns: minmax(300px, 640px) minmax(320px, 1fr); gap: 16px;
+         padding: 16px 20px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .panel h2 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  canvas { width: 100%; height: auto; display: block; border-radius: 6px; background: #1b2530; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  button, select, input[type=number] { background: #223040; color: var(--text); border: 1px solid #33465c;
+         border-radius: 6px; padding: 6px 10px; font: inherit; cursor: pointer; }
+  button:hover { background: #2b3d52; }
+  button.primary { background: #2f6f3e; border-color: #3f8f52; }
+  button.danger { background: #5a2626; border-color: #7a3434; }
+  button.off { background: #5a2626; }
+  input[type=number] { width: 70px; }
+  input[type=range] { width: 130px; }
+  label { color: var(--muted); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .drone { border-left: 4px solid; padding: 6px 10px; margin-bottom: 8px; background: #1b2530; border-radius: 4px; }
+  .drone .top { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .drone .act { font-weight: 600; }
+  .drone .why { color: var(--muted); font-size: 13px; }
+  .tag { font-size: 11px; padding: 1px 6px; border-radius: 10px; background: #2a3646; color: var(--muted); }
+  .tag.llm { background: #3b2f5c; color: #d0bfff; }
+  .tag.think { background: #5c4b1f; color: #ffe066; animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .5; } }
+  .bar { height: 4px; background: #2a3646; border-radius: 2px; margin-top: 4px; }
+  .bar > div { height: 100%; border-radius: 2px; }
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+  .metric { background: #1b2530; padding: 8px; border-radius: 6px; }
+  .metric .v { font-size: 20px; font-weight: 700; }
+  .metric .k { color: var(--muted); font-size: 12px; }
+  #log { height: 320px; overflow-y: auto; font: 12.5px/1.45 ui-monospace, Consolas, monospace; }
+  #log div { padding: 2px 0; border-bottom: 1px solid #1f2a36; }
+  #log .src { color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+  tr.ours td { color: #b2f2bb; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .full { grid-column: 1 / -1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🚁 Mountain Rescue Drones</h1>
+  <span class="sub">3 independent agents · no central hub · works through comms failure</span>
+  <span id="status">-</span>
+</header>
+<main>
+  <div class="side">
+    <div class="panel">
+      <canvas id="cv" width="600" height="600"></canvas>
+      <div class="legend">
+        <span><span class="sw" style="background:#5c4a3a"></span>ridge</span>
+        <span><span class="sw" style="background:#ff6b6b"></span>drone 0</span>
+        <span><span class="sw" style="background:#4dabf7"></span>drone 1</span>
+        <span><span class="sw" style="background:#ffd43b"></span>drone 2</span>
+        <span><span class="sw" style="background:#cc5de8"></span>searched twice</span>
+        <span><span class="sw" style="background:#51cf66"></span>link ok</span>
+        <span><span class="sw" style="background:#ff6b6b"></span>packet dropped</span>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Metrics</h2>
+      <div class="metrics" id="metrics"></div>
+    </div>
+  </div>
+
+  <div class="side">
+    <div class="panel">
+      <h2>Controls</h2>
+      <div class="row">
+        <button id="play" class="primary">▶ Start</button>
+        <button id="step">Step</button>
+        <label>Seed <input type="number" id="seed" value="42"></label>
+        <select id="mode"><option value="ours">Ours (decentralised)</option><option value="baseline">Baseline (central hub)</option></select>
+        <button id="reset">Reset</button>
+      </div>
+      <div class="row">
+        <label>Speed <input type="range" id="speed" min="1" max="40" value="8"></label><span id="speedv">8/s</span>
+        <label>Packet loss <input type="range" id="loss" min="0" max="100" value="0"></label><span id="lossv">0%</span>
+      </div>
+      <div class="row">
+        <button id="comms">📡 Comms ON</button>
+        <button class="danger" data-kill="0">Kill 0</button>
+        <button class="danger" data-kill="1">Kill 1</button>
+        <button class="danger" data-kill="2">Kill 2</button>
+      </div>
+      <div class="row">
+        <label>Agent</label>
+        <select id="agent"><option value="rules">Rules</option><option value="llm">Claude Haiku (LLM)</option></select>
+        <label><input type="checkbox" id="wait" checked> wait for agents</label>
+        <span id="llmstat" class="tag"></span>
+      </div>
+      <div class="row">
+        <label>View</label>
+        <select id="view"><option value="-1">Ground truth</option><option value="0">What drone 0 knows</option><option value="1">What drone 1 knows</option><option value="2">What drone 2 knows</option></select>
+        <label><input type="checkbox" id="reveal"> reveal hiker</label>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Drones</h2>
+      <div id="drones"></div>
+    </div>
+    <div class="panel">
+      <h2>Reasoning log</h2>
+      <div id="log"></div>
+    </div>
+  </div>
+
+  <div class="panel full">
+    <h2>Benchmark: ours vs central hub (rules agent, same seeds)</h2>
+    <div class="row">
+      <label>Seeds <input type="number" id="bseeds" value="5" min="1" max="20"></label>
+      <button id="bench">Run benchmark</button><span id="benchstat" class="sub"></span>
+    </div>
+    <div id="benchout"></div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const cv = $("cv"), ctx = cv.getContext("2d");
+const COLORS = ["#ff6b6b", "#4dabf7", "#ffd43b"];
+let W = null, S = null, worldKey = null;
+
+const post = (path, body = {}) =>
+  fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+async function loadWorld() {
+  W = await (await fetch("/world")).json();
+  worldKey = W.seed + W.mode;
+}
+
+function hexA(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
+function draw() {
+  if (!W || !S) return;
+  const n = W.size, c = cv.width / n;
+  ctx.fillStyle = "#1b2530"; ctx.fillRect(0, 0, cv.width, cv.height);
+  // searched
+  for (let i = 0; i < S.grid.length; i++) {
+    const v = S.grid[i]; if (v < 0) continue;
+    const x = i % n, y = Math.floor(i / n);
+    ctx.fillStyle = v === 3 ? "rgba(204,93,232,0.45)" : hexA(COLORS[v], 0.28);
+    ctx.fillRect(x * c, y * c, c, c);
+  }
+  // ridges
+  ctx.fillStyle = "#5c4a3a";
+  for (const [x, y] of W.ridges) ctx.fillRect(x * c + 1, y * c + 1, c - 2, c - 2);
+  // sector grid
+  ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.lineWidth = 1;
+  ctx.font = `bold ${c * 1.6}px system-ui`; ctx.fillStyle = "rgba(255,255,255,0.10)";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (let i = 0; i < 9; i++) {
+    const sx = (i % 3) * 10 * c, sy = Math.floor(i / 3) * 10 * c;
+    ctx.strokeRect(sx, sy, 10 * c, 10 * c);
+    ctx.fillText(W.sectors[i], sx + 5 * c, sy + 5 * c);
+  }
+  const ctr = ([x, y]) => [x * c + c / 2, y * c + c / 2];
+  // base + rendezvous
+  let [bx, by] = ctr(W.base);
+  ctx.fillStyle = "#adb5bd"; ctx.fillRect(bx - c * 0.7, by - c * 0.7, c * 1.4, c * 1.4);
+  let [rx, ry] = ctr(W.rendezvous);
+  ctx.strokeStyle = "#e6edf3"; ctx.setLineDash([4, 3]); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(rx, ry, c * 1.5, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+  // links
+  for (const l of S.links) {
+    const a = S.drones[l.a];
+    const bp = l.b === "hub" ? W.base : S.drones[l.b].pos;
+    const [x1, y1] = ctr(a.pos), [x2, y2] = ctr(bp);
+    ctx.strokeStyle = l.ok ? "rgba(81,207,102,0.9)" : "rgba(255,107,107,0.8)";
+    ctx.setLineDash(l.ok ? [] : [5, 4]); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  // hiker
+  if (S.hiker) {
+    const [hx, hy] = ctr(S.hiker);
+    ctx.fillStyle = S.hiker_found ? "#51cf66" : "rgba(255,255,255,0.5)";
+    ctx.font = `${c * 1.5}px system-ui`; ctx.fillText("★", hx, hy);
+  }
+  // drones
+  const pulse = (Date.now() / 300) % 2 < 1;
+  for (const d of S.drones) {
+    const [x, y] = ctr(d.pos);
+    if (d.alive && !d.landed) {
+      ctx.strokeStyle = hexA(d.color, 0.12); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(x, y, 12 * c, 0, 7); ctx.stroke();
+    }
+    ctx.fillStyle = d.alive ? d.color : "#555";
+    ctx.beginPath(); ctx.arc(x, y, c * 0.75, 0, 7); ctx.fill();
+    ctx.strokeStyle = "#0f1419"; ctx.lineWidth = 2; ctx.stroke();
+    if (d.thinking && pulse) {
+      ctx.strokeStyle = "#ffe066"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y, c * 1.3, 0, 7); ctx.stroke();
+    }
+    ctx.fillStyle = "#0f1419"; ctx.font = `bold ${c * 0.9}px system-ui`; ctx.fillText(d.id, x, y + 1);
+    if (!d.alive) { ctx.strokeStyle = "#ff6b6b"; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(x - c, y - c); ctx.lineTo(x + c, y + c); ctx.moveTo(x + c, y - c); ctx.lineTo(x - c, y + c); ctx.stroke(); }
+  }
+}
+
+const esc = (s) => String(s ?? "").replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
+const fmtArg = (a) => (a === null || a === undefined ? "" : " " + a);
+
+function renderPanels() {
+  const m = S.metrics;
+  $("status").textContent = `tick ${S.tick} · ${S.status}${S.mode === "baseline" ? " · BASELINE" : ""}`;
+  $("status").style.color = S.status === "complete" ? "#51cf66" : S.status === "failed" ? "#ff6b6b" : "";
+  $("play").textContent = S.running ? "⏸ Pause" : "▶ Start";
+  $("comms").textContent = S.comms_enabled ? "📡 Comms ON" : "📵 Comms OFF";
+  $("comms").classList.toggle("off", !S.comms_enabled);
+  const L = S.llm;
+  $("llmstat").textContent = L.available ? (S.agent_mode === "llm" ? "LLM ready" : "API key found") : "no API key: rules only";
+  const metric = (k, v) => `<div class="metric"><div class="v">${v}</div><div class="k">${k}</div></div>`;
+  $("metrics").innerHTML =
+    metric("time to find", m.found_tick ?? "-") +
+    metric("all drones know", m.all_know_tick ?? "-") +
+    metric("mountain searched", Math.round(m.coverage * 100) + "%") +
+    metric("searched twice", Math.round(m.duplicated * 100) + "%") +
+    metric("messages sent", m.msgs_sent) +
+    metric("messages dropped", m.msgs_dropped) +
+    metric("LLM calls / fallbacks", `${L.calls} / ${L.fallbacks}`) +
+    metric("LLM avg latency", L.avg_latency ? L.avg_latency + "s" : "-") +
+    metric("LLM tokens in / out", `${L.in} / ${L.out}`);
+  $("drones").innerHTML = S.drones.map((d) => {
+    const state = !d.alive ? "LOST" : d.landed ? "LANDED" : `${d.action}${fmtArg(d.arg)}`;
+    const src = d.source || "";
+    const lost = d.presumed_lost.length ? ` · presumes lost: ${d.presumed_lost.join(", ")}` : "";
+    return `<div class="drone" style="border-color:${d.color}">
+      <div class="top"><b>Drone ${d.id}</b><span class="act">${esc(state)}</span>
+        <span class="tag ${src.startsWith("llm") ? "llm" : ""}">${esc(src)}</span>
+        ${d.thinking ? '<span class="tag think">thinking…</span>' : ""}
+        <span class="tag">knows ${Math.round(d.known_pct * 100)}% of map${d.knows_found ? " · knows hiker found" : ""}${esc(lost)}</span></div>
+      <div class="why">${esc(d.reason)}</div>
+      <div class="bar"><div style="width:${d.battery * 100}%;background:${d.battery < 0.25 ? "#ff6b6b" : "#51cf66"}"></div></div>
+    </div>`;
+  }).join("");
+  const log = S.log.slice().reverse().map((e) => {
+    const col = typeof e.drone === "number" ? COLORS[e.drone] : "#adb5bd";
+    const who = typeof e.drone === "number" ? `Drone ${e.drone}` : "Hub";
+    return `<div>[${e.tick}] <b style="color:${col}">${who}</b> <span class="src">(${esc(e.source)}${e.event ? ", " + esc(e.event) : ""})</span>: <b>${esc(e.action)}${esc(fmtArg(e.arg))}</b>: ${esc(e.reason)}</div>`;
+  }).join("");
+  if ($("log").dataset.last !== String(S.log.length) + S.tick) { $("log").innerHTML = log; $("log").dataset.last = String(S.log.length) + S.tick; }
+}
+
+async function poll() {
+  try {
+    S = await (await fetch("/state?view=" + $("view").value)).json();
+    if (!W || worldKey !== S.seed + S.mode) await loadWorld();
+    renderPanels();
+  } catch (e) { $("status").textContent = "server offline"; }
+  setTimeout(poll, 100);
+}
+function frame() { draw(); requestAnimationFrame(frame); }
+
+$("play").onclick = () => post(S && S.running ? "/control/pause" : "/control/start");
+$("step").onclick = () => post("/control/step");
+$("reset").onclick = async () => { await post("/control/reset", { seed: +$("seed").value, mode: $("mode").value }); await loadWorld(); };
+$("speed").oninput = (e) => { $("speedv").textContent = e.target.value + "/s"; post("/control/speed", { ticks_per_second: +e.target.value }); };
+$("loss").oninput = (e) => { $("lossv").textContent = e.target.value + "%"; post("/control/packet_loss", { value: e.target.value / 100 }); };
+$("comms").onclick = () => post("/control/comms", { enabled: !S.comms_enabled });
+document.querySelectorAll("[data-kill]").forEach((b) => (b.onclick = () => post("/control/kill", { drone_id: +b.dataset.kill })));
+$("agent").onchange = (e) => post("/control/agent", { mode: e.target.value });
+$("wait").onchange = (e) => post("/control/agent", { wait: e.target.checked });
+$("reveal").onchange = (e) => post("/control/reveal", { enabled: e.target.checked });
+$("bench").onclick = async () => {
+  $("benchstat").textContent = " running…";
+  const r = await (await post("/bench", { seeds: +$("bseeds").value })).json();
+  $("benchstat").textContent = "";
+  const pct = (v) => Math.round(v * 100) + "%";
+  $("benchout").innerHTML = `<table><tr><th>Scenario</th><th>Mode</th><th>Found</th><th>Avg time to find</th><th>Avg all know</th><th>Searched</th><th>Searched twice</th></tr>` +
+    r.rows.map((x) => `<tr class="${x.mode}"><td>${x.scenario}</td><td>${x.mode}</td><td>${x.found}/${x.runs}</td><td>${x.avg_time_to_find ?? "-"}</td><td>${x.avg_all_know ?? "-"}</td><td>${pct(x.avg_coverage)}</td><td>${pct(x.avg_duplicated)}</td></tr>`).join("") + "</table>";
+};
+
+(async () => {
+  const s = await (await fetch("/state")).json();
+  $("seed").value = s.seed; $("mode").value = s.mode; $("agent").value = s.agent_mode;
+  $("wait").checked = s.wait_for_agents; $("speed").value = s.tps; $("speedv").textContent = s.tps + "/s";
+  $("loss").value = Math.round(s.packet_loss * 100); $("lossv").textContent = $("loss").value + "%";
+  await loadWorld(); poll(); frame();
+})();
+</script>
+</body>
+</html>
