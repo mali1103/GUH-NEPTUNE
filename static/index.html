@@ -40,7 +40,6 @@
   .drone .act { font-weight: 600; }
   .drone .why { color: var(--muted); font-size: 13px; }
   .tag { font-size: 11px; padding: 1px 6px; border-radius: 10px; background: #2a3646; color: var(--muted); }
-  .tag.llm { background: #3b2f5c; color: #d0bfff; }
   .tag.think { background: #5c4b1f; color: #ffe066; animation: pulse 1s infinite; }
   @keyframes pulse { 50% { opacity: .5; } }
   .bar { height: 4px; background: #2a3646; border-radius: 2px; margin-top: 4px; }
@@ -59,6 +58,17 @@
   .legend { display: flex; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: 12px; margin-top: 8px; }
   .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
   .full { grid-column: 1 / -1; }
+  @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+  h3 { font-size: 14px; margin: 4px 0 8px; }
+  .takeaway { color: var(--text); background: #1b2530; border-radius: 6px; padding: 8px 10px; margin: 8px 0; font-size: 13px; }
+  .chart { position: relative; max-width: 620px; }
+  .chart svg { width: 100%; height: auto; display: block; }
+  .chart .tip { position: absolute; pointer-events: none; background: #0f1419; border: 1px solid #33465c; border-radius: 6px;
+                padding: 6px 8px; font-size: 12px; white-space: nowrap; display: none; z-index: 2; }
+  .lg { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .lg i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+  details { margin-top: 10px; } summary { cursor: pointer; color: var(--muted); }
+  tr.hl td { color: #a5d8ff; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -79,6 +89,7 @@
         <span><span class="sw" style="background:#4dabf7"></span>drone 1</span>
         <span><span class="sw" style="background:#ffd43b"></span>drone 2</span>
         <span><span class="sw" style="background:#cc5de8"></span>searched twice</span>
+        <span><span class="sw" style="background:#ff922b"></span>estimated hiker position (beacon died)</span>
         <span><span class="sw" style="background:#51cf66"></span>link ok</span>
         <span><span class="sw" style="background:#ff6b6b"></span>packet dropped</span>
       </div>
@@ -96,7 +107,7 @@
         <button id="play" class="primary">▶ Start</button>
         <button id="step">Step</button>
         <label>Seed <input type="number" id="seed" value="42"></label>
-        <select id="mode"><option value="ours">Ours (decentralised)</option><option value="baseline">Baseline (central hub)</option></select>
+        <select id="mode"><option value="ours">Ours (decentralised)</option><option value="baseline">Central hub (baseline)</option><option value="solo">No coordination (each alone)</option></select>
         <button id="reset">Reset</button>
       </div>
       <div class="row">
@@ -111,6 +122,15 @@
         <span class="tag" id="plan"></span>
       </div>
       <div class="row">
+        <label>Hiker's beacon</label>
+        <select id="beacon">
+          <option value="on">Working</option>
+          <option value="dies">Dies right after first contact</option>
+          <option value="off">Off the whole time (dead phone)</option>
+        </select>
+        <span class="tag" id="beaconstat"></span>
+      </div>
+      <div class="row">
         <label>Speed <input type="range" id="speed" min="1" max="40" value="8"></label><span id="speedv">8/s</span>
         <label>Packet loss <input type="range" id="loss" min="0" max="100" value="0"></label><span id="lossv">0%</span>
       </div>
@@ -121,14 +141,8 @@
         <button class="danger" data-kill="2">Kill 2</button>
       </div>
       <div class="row">
-        <label>Agent</label>
-        <select id="agent"><option value="rules">Rules</option><option value="llm">Claude Haiku (LLM)</option></select>
-        <label><input type="checkbox" id="wait" checked> wait for agents</label>
-        <span id="llmstat" class="tag"></span>
-      </div>
-      <div class="row">
         <label>View</label>
-        <select id="view"><option value="-1">Ground truth</option><option value="0">What drone 0 knows</option><option value="1">What drone 1 knows</option><option value="2">What drone 2 knows</option></select>
+        <select id="view"><option value="-1">Ground truth</option><option value="0">What drone 0 knows &amp; believes</option><option value="1">What drone 1 knows &amp; believes</option><option value="2">What drone 2 knows &amp; believes</option></select>
         <label><input type="checkbox" id="reveal"> reveal hiker</label>
       </div>
     </div>
@@ -143,12 +157,26 @@
   </div>
 
   <div class="panel full">
-    <h2>Benchmark: ours vs central hub (rules agent, same seeds)</h2>
+    <h2>Evidence: what teamwork and resilience are worth</h2>
     <div class="row">
+      <span id="benchstat" class="sub"></span>
       <label>Seeds <input type="number" id="bseeds" value="5" min="1" max="20"></label>
-      <button id="bench">Run benchmark</button><span id="benchstat" class="sub"></span>
+      <button id="bench">Re-run benchmark</button>
     </div>
-    <div id="benchout"></div>
+    <div class="grid2">
+      <div>
+        <h3>What each layer of teamwork is worth (radio working)</h3>
+        <div id="breakdown"></div>
+      </div>
+      <div>
+        <h3>Resilience: as the radio gets worse</h3>
+        <div class="lg" id="legend"></div>
+        <div class="chart" id="chartFound"></div>
+        <div class="chart" id="chartTime"></div>
+      </div>
+    </div>
+    <details><summary>Resilience data as a table</summary><div id="curveTable"></div></details>
+    <details><summary>All failure scenarios (blackout, killed drone, beacon off...)</summary><div id="scenarios"></div></details>
   </div>
 </main>
 
@@ -202,7 +230,7 @@ function buildTerrain() {
 
 async function loadWorld() {
   W = await (await fetch("/world")).json();
-  worldKey = W.seed + W.mode + W.start;
+  worldKey = W.seed + W.mode + W.start + W.beacon;
   buildTerrain();
   $("plan").textContent = `base at (${W.base}) · plan: ` +
     Object.entries(W.plan).map(([i, s]) => `drone ${i} → ${s.join("")}`).join(" · ");
@@ -252,14 +280,49 @@ function draw() {
     ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
   }
   ctx.setLineDash([]);
+  // where a drone estimates the hiker is, after the beacon died
+  for (const d of S.drones) {
+    if (!d.estimate) continue;
+    const top = d.estimate.cells.length ? d.estimate.cells[0][2] : 1;
+    for (const [x, y, p] of d.estimate.cells) {
+      ctx.fillStyle = `rgba(255,146,43,${Math.min(0.75, 0.12 + 0.7 * p / top)})`;
+      ctx.fillRect(x * c, y * c, c, c);
+    }
+    const [ex, ey] = ctr(d.estimate.center);
+    ctx.strokeStyle = "#ff922b"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+    ctx.beginPath(); ctx.arc(ex, ey, Math.max(1.5, d.estimate.radius) * c * 1.5, 0, 7); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#ff922b"; ctx.font = `bold ${Math.max(c * 1.4, 18)}px system-ui`; ctx.fillText("?", ex, ey);
+  }
   // hiker
   if (S.hiker) {
     const [hx, hy] = ctr(S.hiker);
     ctx.fillStyle = S.hiker_found ? "#51cf66" : "rgba(255,255,255,0.5)";
     ctx.font = `${Math.max(c * 1.5, 22)}px system-ui`; ctx.fillText("★", hx, hy);
   }
+  // ghosts: where the viewed drone BELIEVES its teammates are (dashed ring), joined to where
+  // they really are. Stale or wrong beliefs are what each drone actually decides from.
+  if (S.view >= 0) {
+    const me = S.drones[S.view];
+    const R = Math.max(c * 0.75, 9);
+    for (const [j, b] of Object.entries(me.beliefs)) {
+      const real = S.drones[+j];
+      const [gx, gy] = ctr(b.pos), [tx, ty] = ctr(real.pos);
+      ctx.strokeStyle = "rgba(230,237,243,0.5)"; ctx.setLineDash([3, 4]); ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(gx, gy); ctx.lineTo(tx, ty); ctx.stroke();
+      ctx.setLineDash([4, 3]); ctx.lineWidth = 2.5; ctx.strokeStyle = real.color; ctx.fillStyle = "rgba(15,20,25,0.6)";
+      ctx.beginPath(); ctx.arc(gx, gy, R * 1.2, 0, 7); ctx.fill(); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = real.color; ctx.font = `bold ${R}px system-ui`; ctx.fillText(b.alive ? j : "✕", gx, gy + 1);
+      const doing = b.alive ? `${(b.action || "").replaceAll("_", " ").toLowerCase()}${b.target ? " " + b.target : ""}` : "presumed lost";
+      const label = `drone ${me.id} thinks ${j}: ${doing} · ${b.age} ticks old`;
+      ctx.font = "12px system-ui"; const w = ctx.measureText(label).width + 10;
+      const lx = Math.min(Math.max(gx - w / 2, 2), cv.width - w - 2);
+      const ly = gy - R * 1.2 - 18 < 2 ? gy + R * 1.2 + 4 : gy - R * 1.2 - 18;
+      ctx.fillStyle = "rgba(15,20,25,0.85)"; ctx.fillRect(lx, ly, w, 16);
+      ctx.fillStyle = "#e6edf3"; ctx.textAlign = "left"; ctx.fillText(label, lx + 5, ly + 8.5); ctx.textAlign = "center";
+    }
+  }
   // drones
-  const pulse = (Date.now() / 300) % 2 < 1;
   for (const d of S.drones) {
     const [x, y] = ctr(d.pos);
     if (d.alive && !d.landed) {
@@ -270,10 +333,6 @@ function draw() {
     ctx.fillStyle = d.alive ? d.color : "#555";
     ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.fill();
     ctx.strokeStyle = "#0f1419"; ctx.lineWidth = 2; ctx.stroke();
-    if (d.thinking && pulse) {
-      ctx.strokeStyle = "#ffe066"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(x, y, R * 1.7, 0, 7); ctx.stroke();
-    }
     ctx.fillStyle = "#0f1419"; ctx.font = `bold ${R * 1.2}px system-ui`; ctx.fillText(d.id, x, y + 1);
     if (!d.alive) { ctx.strokeStyle = "#ff6b6b"; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.moveTo(x - R, y - R); ctx.lineTo(x + R, y + R); ctx.moveTo(x + R, y - R); ctx.lineTo(x - R, y + R); ctx.stroke(); }
@@ -286,12 +345,15 @@ const fmtArg = (a) => (a === null || a === undefined ? "" : " " + a);
 function renderPanels() {
   const m = S.metrics;
   $("status").textContent = `tick ${S.tick} · ${S.status}${S.mode === "baseline" ? " · BASELINE" : ""}`;
+  // keep the dropdowns in sync with the server (unless the user is using one)
+  for (const [id, v] of [["beacon", S.beacon.mode], ["start", S.start], ["mode", S.mode]])
+    if (document.activeElement !== $(id) && $(id).value !== v) $(id).value = v;
+  const B = S.beacon;
+  $("beaconstat").textContent = B.mode === "off" ? "beacon off" : B.alive ? "beacon transmitting" : `beacon died at tick ${B.died_at}`;
   $("status").style.color = S.status === "complete" ? "#51cf66" : S.status === "failed" ? "#ff6b6b" : "";
   $("play").textContent = S.running ? "⏸ Pause" : "▶ Start";
   $("comms").textContent = S.comms_enabled ? "📡 Comms ON" : "📵 Comms OFF";
   $("comms").classList.toggle("off", !S.comms_enabled);
-  const L = S.llm;
-  $("llmstat").textContent = L.available ? (S.agent_mode === "llm" ? "LLM ready" : "API key found") : "no API key: rules only";
   const metric = (k, v) => `<div class="metric"><div class="v">${v}</div><div class="k">${k}</div></div>`;
   $("metrics").innerHTML =
     metric("time to find", m.found_tick ?? "-") +
@@ -300,17 +362,17 @@ function renderPanels() {
     metric("searched twice", Math.round(m.duplicated * 100) + "%") +
     metric("messages sent", m.msgs_sent) +
     metric("messages dropped", m.msgs_dropped) +
-    metric("LLM calls / fallbacks", `${L.calls} / ${L.fallbacks}`) +
-    metric("LLM avg latency", L.avg_latency ? L.avg_latency + "s" : "-") +
-    metric("LLM tokens in / out", `${L.in} / ${L.out}`);
+    metric("belief error now (cells)", m.belief_error_now) +
+    metric("avg belief error (cells)", m.belief_error);
   $("drones").innerHTML = S.drones.map((d) => {
-    const state = !d.alive ? "LOST" : d.landed ? "LANDED" : `${d.action}${fmtArg(d.arg)}`;
+    const state = !d.alive ? "LOST" : d.recharging != null ? `SWAPPING BATTERY (${d.recharging})` : d.landed ? "LANDED" : `${d.action}${fmtArg(d.arg)}`;
     const src = d.source || "";
     const lost = d.presumed_lost.length ? ` · presumes lost: ${d.presumed_lost.join(", ")}` : "";
     return `<div class="drone" style="border-color:${d.color}">
       <div class="top"><b>Drone ${d.id}</b><span class="act">${esc(state)}</span>
-        <span class="tag ${src.startsWith("llm") ? "llm" : ""}">${esc(src)}</span>
-        ${d.thinking ? '<span class="tag think">thinking…</span>' : ""}
+        <span class="tag">${esc(src)}</span>
+        ${d.search_mode === "camera" ? '<span class="tag" style="background:#5c3a1f;color:#ffc078">camera search</span>' : ""}
+        ${d.estimate ? `<span class="tag" style="background:#5c3a1f;color:#ffc078">estimate ±${d.estimate.radius} · ${Math.round(d.estimate.left * 100)}% unchecked</span>` : ""}
         <span class="tag">knows ${Math.round(d.known_pct * 100)}% of map${d.knows_found ? " · knows hiker found" : ""}${esc(lost)}</span></div>
       <div class="why">${esc(d.reason)}</div>
       <div class="bar"><div style="width:${d.battery * 100}%;background:${d.battery < 0.25 ? "#ff6b6b" : "#51cf66"}"></div></div>
@@ -327,7 +389,7 @@ function renderPanels() {
 async function poll() {
   try {
     S = await (await fetch("/state?view=" + $("view").value)).json();
-    if (!W || worldKey !== S.seed + S.mode + S.start) await loadWorld();
+    if (!W || worldKey !== S.seed + S.mode + S.start + S.beacon.mode) await loadWorld();
     renderPanels();
   } catch (e) { $("status").textContent = "server offline"; }
   setTimeout(poll, 100);
@@ -336,30 +398,120 @@ function frame() { draw(); requestAnimationFrame(frame); }
 
 $("play").onclick = () => post(S && S.running ? "/control/pause" : "/control/start");
 $("step").onclick = () => post("/control/step");
-$("reset").onclick = async () => { await post("/control/reset", { seed: +$("seed").value, mode: $("mode").value, start: $("start").value }); await loadWorld(); };
+$("reset").onclick = async () => { await post("/control/reset", { seed: +$("seed").value, mode: $("mode").value, start: $("start").value, beacon: $("beacon").value }); await loadWorld(); };
+$("beacon").onchange = () => $("reset").click();
 $("start").onchange = () => $("reset").click();
 $("speed").oninput = (e) => { $("speedv").textContent = e.target.value + "/s"; post("/control/speed", { ticks_per_second: +e.target.value }); };
 $("loss").oninput = (e) => { $("lossv").textContent = e.target.value + "%"; post("/control/packet_loss", { value: e.target.value / 100 }); };
 $("comms").onclick = () => post("/control/comms", { enabled: !S.comms_enabled });
 document.querySelectorAll("[data-kill]").forEach((b) => (b.onclick = () => post("/control/kill", { drone_id: +b.dataset.kill })));
-$("agent").onchange = (e) => post("/control/agent", { mode: e.target.value });
-$("wait").onchange = (e) => post("/control/agent", { wait: e.target.checked });
 $("reveal").onchange = (e) => post("/control/reveal", { enabled: e.target.checked });
+// ---------------------------------------------------------------- evidence panel
+const SERIES = [  // validated palette (dark surface): ours blue, hub orange, solo aqua
+  { key: "ours", name: "Ours (plan + radio)", color: "#3987e5" },
+  { key: "baseline", name: "Central hub", color: "#d95926" },
+  { key: "solo", name: "No coordination", color: "#199e70" },
+];
+const pct = (v) => (v == null ? "-" : Math.round(v * 100) + "%");
+const num = (v) => (v == null ? "-" : Math.round(v));
+
+function lineChart(el, curve, { title, value, fmt, yMax }) {
+  const W = 520, H = 220, m = { l: 46, r: 132, t: 24, b: 34 };
+  const levels = curve.ours.map((p) => p.loss);
+  const X = (v) => m.l + v * (W - m.l - m.r);
+  const all = SERIES.flatMap((s) => curve[s.key].map(value)).filter((v) => v != null);
+  let top = yMax;
+  if (!top) {  // round axis: 4 gridlines at a 1/2/2.5/5 x 10^k step
+    const raw = (Math.max(...all, 1) * 1.05) / 4, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    top = [1, 2, 2.5, 5, 10].find((k) => k * mag >= raw) * mag * 4;
+  }
+  const Y = (v) => H - m.b - (v / top) * (H - m.t - m.b);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${title}">`;
+  svg += `<text x="${m.l}" y="14" fill="#e6edf3" font-size="12" font-weight="600">${title}</text>`;
+  for (let i = 0; i <= 4; i++) {
+    const v = (top * i) / 4, y = Y(v);
+    svg += `<line x1="${m.l}" x2="${W - m.r}" y1="${y}" y2="${y}" stroke="#263241" stroke-width="1"/>`;
+    svg += `<text x="${m.l - 6}" y="${y + 4}" fill="#8b98a8" font-size="11" text-anchor="end">${fmt(v)}</text>`;
+  }
+  for (const v of levels)
+    svg += `<text x="${X(v)}" y="${H - m.b + 16}" fill="#8b98a8" font-size="11" text-anchor="middle">${Math.round(v * 100)}%</text>`;
+  svg += `<text x="${(m.l + W - m.r) / 2}" y="${H - 4}" fill="#8b98a8" font-size="11" text-anchor="middle">packet loss</text>`;
+  const ends = [];
+  for (const s of [...SERIES].reverse()) {  // ours drawn last = on top
+    const pts = curve[s.key].map((p) => [p.loss, value(p)]);
+    let d = "", pen = false;
+    for (const [x, v] of pts) { if (v == null) { pen = false; continue; } d += `${pen ? "L" : "M"}${X(x)},${Y(v)}`; pen = true; }
+    svg += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round"/>`;
+    for (const [x, v] of pts) if (v != null)
+      svg += `<circle cx="${X(x)}" cy="${Y(v)}" r="4" fill="${s.color}" stroke="#171e26" stroke-width="2"/>`;
+    const last = [...pts].reverse().find(([, v]) => v != null);
+    if (last) ends.push({ s, y: Y(last[1]) });
+  }
+  ends.sort((a, b) => a.y - b.y);  // direct labels, nudged apart so they never collide
+  for (let i = 1; i < ends.length; i++) if (ends[i].y - ends[i - 1].y < 15) ends[i].y = ends[i - 1].y + 15;
+  for (const e of ends) {
+    svg += `<circle cx="${W - m.r + 12}" cy="${e.y}" r="4" fill="${e.s.color}"/>`;
+    svg += `<text x="${W - m.r + 20}" y="${e.y + 4}" fill="#e6edf3" font-size="11">${e.s.name}</text>`;
+  }
+  svg += `<line class="xh" x1="0" x2="0" y1="${m.t}" y2="${H - m.b}" stroke="#8b98a8" stroke-dasharray="3 3" visibility="hidden"/>`;
+  svg += `<rect class="hit" x="${m.l - 10}" y="${m.t}" width="${W - m.l - m.r + 20}" height="${H - m.t - m.b}" fill="transparent"/>`;
+  svg += "</svg>";
+  el.innerHTML = svg + '<div class="tip"></div>';
+  const sv = el.querySelector("svg"), tip = el.querySelector(".tip"), xh = el.querySelector(".xh");
+  const hit = el.querySelector(".hit");
+  hit.addEventListener("mousemove", (ev) => {
+    const r = sv.getBoundingClientRect(), sx = ((ev.clientX - r.left) / r.width) * W;
+    const i = levels.reduce((b, v, k) => (Math.abs(X(v) - sx) < Math.abs(X(levels[b]) - sx) ? k : b), 0);
+    xh.setAttribute("x1", X(levels[i])); xh.setAttribute("x2", X(levels[i])); xh.setAttribute("visibility", "visible");
+    tip.innerHTML = `<b>${Math.round(levels[i] * 100)}% packet loss</b><br>` + SERIES.map((s) =>
+      `<span style="display:inline-block;width:8px;height:8px;border-radius:4px;background:${s.color};margin-right:6px"></span>` +
+      `${s.name}: <b>${fmt(value(curve[s.key][i]))}</b>`).join("<br>");
+    tip.style.display = "block";
+    const px = (X(levels[i]) / W) * r.width;
+    tip.style.left = Math.min(px + 12, r.width - tip.offsetWidth - 4) + "px"; tip.style.top = "24px";
+  });
+  hit.addEventListener("mouseleave", () => { tip.style.display = "none"; xh.setAttribute("visibility", "hidden"); });
+}
+
+function renderEvidence(r) {
+  if (!r || r.missing) { $("benchstat").textContent = "No saved results yet: run the benchmark (~1 min)."; return; }
+  $("benchstat").textContent = `Saved results: ${r.seeds} maps per setting (${r.seconds}s to compute).`;
+  const B = r.breakdown;
+  $("breakdown").innerHTML = `<table><tr><th>Setup</th><th>Found</th><th>Time to find</th><th>All drones know</th><th>Searched twice</th><th>Belief error</th></tr>` +
+    B.map((x) => `<tr class="${x.setup.includes("ours") ? "hl" : ""}"><td>${x.setup}</td><td>${x.found}/${x.runs}</td><td>${num(x.avg_time_to_find)}</td>` +
+      `<td>${num(x.avg_all_know)}</td><td>${pct(x.avg_duplicated)}</td><td>${x.avg_belief_error}</td></tr>`).join("") + "</table>";
+  const [solo, plan, ours] = B;
+  if (solo.avg_time_to_find && plan.avg_time_to_find && ours.avg_all_know && plan.avg_all_know) {
+    $("breakdown").innerHTML += `<div class="takeaway">The <b>pre-launch plan</b> alone finds the hiker
+      ${Math.round((1 - plan.avg_time_to_find / solo.avg_time_to_find) * 100)}% faster than drones searching alone.
+      Adding the <b>radio</b> cuts double-searching from ${pct(plan.avg_duplicated)} to ${pct(ours.avg_duplicated)}
+      and gets the news to every drone ${(plan.avg_all_know / ours.avg_all_know).toFixed(1)}× sooner.
+      With the radio <b>completely dead</b>, the team still found the hiker on ${plan.found}/${plan.runs} maps.</div>`;
+  }
+  $("legend").innerHTML = SERIES.map((s) => `<span><i style="background:${s.color}"></i>${s.name}</span>`).join("");
+  lineChart($("chartFound"), r.curve, { title: "Hiker found (% of maps)", value: (p) => p.found / p.runs, fmt: pct, yMax: 1 });
+  lineChart($("chartTime"), r.curve, { title: "Average time to find (ticks, when found)", value: (p) => p.avg_time_to_find, fmt: num });
+  const L = r.curve.ours.map((p) => p.loss);
+  $("curveTable").innerHTML = `<table><tr><th>Mode</th>${L.map((l) => `<th>${Math.round(l * 100)}% loss</th>`).join("")}</tr>` +
+    SERIES.map((s) => `<tr><td>${s.name}</td>${r.curve[s.key].map((p) => `<td>${p.found}/${p.runs} · ${num(p.avg_time_to_find)}</td>`).join("")}</tr>`).join("") +
+    "</table><div class='sub'>Each cell: maps where the hiker was found · average ticks to find.</div>";
+  const label = { ours: "ours", baseline: "central hub", solo: "no coordination" };
+  $("scenarios").innerHTML = `<table><tr><th>Scenario</th><th>Mode</th><th>Found</th><th>Time to find</th><th>All know</th><th>Searched</th><th>Searched twice</th></tr>` +
+    r.scenarios.map((x) => `<tr class="${x.mode === "ours" ? "hl" : ""}"><td>${x.scenario}</td><td>${label[x.mode]}</td><td>${x.found}/${x.runs}</td>` +
+      `<td>${num(x.avg_time_to_find)}</td><td>${num(x.avg_all_know)}</td><td>${pct(x.avg_coverage)}</td><td>${pct(x.avg_duplicated)}</td></tr>`).join("") + "</table>";
+}
 $("bench").onclick = async () => {
-  $("benchstat").textContent = " running…";
-  const r = await (await post("/bench", { seeds: +$("bseeds").value })).json();
-  $("benchstat").textContent = "";
-  const pct = (v) => Math.round(v * 100) + "%";
-  $("benchout").innerHTML = `<table><tr><th>Scenario</th><th>Mode</th><th>Found</th><th>Avg time to find</th><th>Avg all know</th><th>Searched</th><th>Searched twice</th></tr>` +
-    r.rows.map((x) => `<tr class="${x.mode}"><td>${x.scenario}</td><td>${x.mode}</td><td>${x.found}/${x.runs}</td><td>${x.avg_time_to_find ?? "-"}</td><td>${x.avg_all_know ?? "-"}</td><td>${pct(x.avg_coverage)}</td><td>${pct(x.avg_duplicated)}</td></tr>`).join("") + "</table>";
+  $("benchstat").textContent = "Running… (about a minute)";
+  renderEvidence(await (await post("/bench", { seeds: +$("bseeds").value })).json());
 };
 
 (async () => {
   const s = await (await fetch("/state")).json();
-  $("seed").value = s.seed; $("mode").value = s.mode; $("agent").value = s.agent_mode; $("start").value = s.start;
-  $("wait").checked = s.wait_for_agents; $("speed").value = s.tps; $("speedv").textContent = s.tps + "/s";
+  $("seed").value = s.seed; $("mode").value = s.mode; $("start").value = s.start; $("beacon").value = s.beacon.mode;
+  $("speed").value = s.tps; $("speedv").textContent = s.tps + "/s";
   $("loss").value = Math.round(s.packet_loss * 100); $("lossv").textContent = $("loss").value + "%";
   await loadWorld(); poll(); frame();
+  fetch("/bench").then((r) => r.json()).then(renderEvidence);
 })();
 </script>
 </body>

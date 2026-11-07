@@ -1,35 +1,23 @@
-"""FastAPI server: serves the page, /state and /world JSON, control endpoints.
+"""FastAPI server: serves the page, /state and /world JSON, control endpoints, benchmarks.
 
     uvicorn server:app --reload
 """
-import io
+import json
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from dotenv import load_dotenv
+from fastapi import Body, FastAPI
+from fastapi.responses import FileResponse
 
+from bench import run_all
+from sim import MODES, Sim
 
-def _load_env():
-    """Load .env whatever editor/shell wrote it. Windows PowerShell's `echo x > .env`
-    writes UTF-16 or UTF-8 with a BOM, which plain load_dotenv() silently misreads."""
-    p = Path(__file__).parent / ".env"
-    if not p.exists():
-        return
-    raw = p.read_bytes()
-    enc = "utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8-sig"
-    load_dotenv(stream=io.StringIO(raw.decode(enc)))
+ROOT = Path(__file__).parent
+STATIC = ROOT / "static"
+BENCH_FILE = ROOT / "bench_results.json"
 
-
-_load_env()
-
-from fastapi import Body, FastAPI  # noqa: E402
-from fastapi.responses import FileResponse  # noqa: E402
-
-from sim import Sim, benchmark  # noqa: E402
-
-sim = Sim(seed=2, mode="ours", start="random")  # demo: base top-left, hiker in drone 1's far sector  # demo seed: hiker in sector B, drone 1's last sector
-STATIC = Path(__file__).parent / "static"
+sim = Sim(seed=2, mode="ours", start="random")  # demo: base top-left, hiker in drone 1's far sector
 
 
 @asynccontextmanager
@@ -75,14 +63,14 @@ def pause():
 def step():
     with sim.lock:
         sim.running = False
-        if not sim.agents_busy():
-            sim.step()
+        sim.step()
     return {"ok": True}
 
 
 @app.post("/control/reset")
 def reset(body: dict = Body(default={})):
-    sim.reset(body.get("seed"), body.get("mode"), body.get("start"))
+    mode = body.get("mode")
+    sim.reset(body.get("seed"), mode if mode in MODES else None, body.get("start"), body.get("beacon"))
     return {"ok": True}
 
 
@@ -110,23 +98,23 @@ def kill(body: dict = Body(...)):
     return {"ok": True}
 
 
-@app.post("/control/agent")
-def agent_mode(body: dict = Body(...)):
-    with sim.lock:
-        if body.get("mode") in ("rules", "llm"):
-            sim.agent_mode = body["mode"]
-        if "wait" in body:
-            sim.wait_for_agents = bool(body["wait"])
-    return {"ok": True}
-
-
 @app.post("/control/reveal")
 def reveal(body: dict = Body(...)):
     sim.reveal = bool(body.get("enabled", False))
     return {"ok": True}
 
 
+@app.get("/bench")
+def bench_cached():
+    """Last saved benchmark (python bench.py writes it), so the demo shows results instantly."""
+    if BENCH_FILE.exists():
+        return json.loads(BENCH_FILE.read_text(encoding="utf-8"))
+    return {"missing": True}
+
+
 @app.post("/bench")
-def bench(body: dict = Body(default={})):
+def bench_run(body: dict = Body(default={})):
     seeds = max(1, min(20, int(body.get("seeds", 5))))
-    return {"rows": benchmark(seeds)}
+    results = run_all(seeds)
+    BENCH_FILE.write_text(json.dumps(results, indent=1), encoding="utf-8")
+    return results

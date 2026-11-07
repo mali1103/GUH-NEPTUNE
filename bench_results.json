@@ -1,0 +1,467 @@
+{
+ "seeds": 10,
+ "breakdown": [
+  {
+   "setup": "No coordination (each drone alone)",
+   "runs": 10,
+   "found": 10,
+   "avg_time_to_find": 187.5,
+   "avg_all_know": 602.0,
+   "avg_coverage": 0.898,
+   "avg_duplicated": 0.697,
+   "avg_belief_error": 34.6
+  },
+  {
+   "setup": "Pre-launch plan only (radio dead)",
+   "runs": 10,
+   "found": 10,
+   "avg_time_to_find": 155.5,
+   "avg_all_know": 530.5,
+   "avg_coverage": 0.984,
+   "avg_duplicated": 0.491,
+   "avg_belief_error": 33.0
+  },
+  {
+   "setup": "Plan + radio sharing (ours)",
+   "runs": 10,
+   "found": 10,
+   "avg_time_to_find": 148.6,
+   "avg_all_know": 172.9,
+   "avg_coverage": 0.654,
+   "avg_duplicated": 0.236,
+   "avg_belief_error": 8.0
+  },
+  {
+   "setup": "Central hub (baseline)",
+   "runs": 10,
+   "found": 3,
+   "avg_time_to_find": 281.0,
+   "avg_all_know": 720.0,
+   "avg_coverage": 0.732,
+   "avg_duplicated": 0.244,
+   "avg_belief_error": 34.8
+  }
+ ],
+ "curve": {
+  "ours": [
+   {
+    "loss": 0.0,
+    "runs": 10,
+    "found": 10,
+    "avg_time_to_find": 148.6,
+    "avg_all_know": 172.9,
+    "avg_coverage": 0.654,
+    "avg_duplicated": 0.236,
+    "avg_belief_error": 8.0
+   },
+   {
+    "loss": 0.25,
+    "runs": 10,
+    "found": 10,
+    "avg_time_to_find": 148.5,
+    "avg_all_know": 173.4,
+    "avg_coverage": 0.654,
+    "avg_duplicated": 0.24,
+    "avg_belief_error": 8.2
+   },
+   {
+    "loss": 0.5,
+    "runs": 10,
+    "found": 10,
+    "avg_time_to_find": 149.4,
+    "avg_all_know": 176.9,
+    "avg_coverage": 0.651,
+    "avg_duplicated": 0.244,
+    "avg_belief_error": 8.4
+   },
+   {
+    "loss": 0.75,
+    "runs": 10,
+    "found": 10,
+    "avg_time_to_find": 150.4,
+    "avg_all_know": 179.6,
+    "avg_coverage": 0.65,
+    "avg_duplicated": 0.256,
+    "avg_belief_error": 9.6
+   },
+   {
+    "loss": 0.9,
+    "runs": 10,
+    "found": 10,
+    "avg_time_to_find": 151.8,
+    "avg_all_know": 188.9,
+    "avg_coverage": 0.651,
+    "avg_duplicated": 0.25,
+    "avg_belief_error": 11.7
+   },
+   {
+    "loss": 1.0,
+    "runs": 10,
+    "found": 10,
+    "avg_time_to_find": 155.5,
+    "avg_all_know": 530.5,
+    "avg_coverage": 0.984,
+    "avg_duplicated": 0.491,
+    "avg_belief_error": 33.0
+   }
+  ],
+  "baseline": [
+   {
+    "loss": 0.0,
+    "runs": 10,
+    "found": 3,
+    "avg_time_to_find": 281.0,
+    "avg_all_know": 720.0,
+    "avg_coverage": 0.732,
+    "avg_duplicated": 0.244,
+    "avg_belief_error": 34.8
+   },
+   {
+    "loss": 0.25,
+    "runs": 10,
+    "found": 4,
+    "avg_time_to_find": 377.5,
+    "avg_all_know": 720.8,
+    "avg_coverage": 0.696,
+    "avg_duplicated": 0.231,
+    "avg_belief_error": 34.3
+   },
+   {
+    "loss": 0.5,
+    "runs": 10,
+    "found": 3,
+    "avg_time_to_find": 283.7,
+    "avg_all_know": 722.3,
+    "avg_coverage": 0.726,
+    "avg_duplicated": 0.256,
+    "avg_belief_error": 34.7
+   },
+   {
+    "loss": 0.75,
+    "runs": 10,
+    "found": 4,
+    "avg_time_to_find": 558.0,
+    "avg_all_know": 909.0,
+    "avg_coverage": 0.718,
+    "avg_duplicated": 0.251,
+    "avg_belief_error": 34.4
+   },
+   {
+    "loss": 0.9,
+    "runs": 10,
+    "found": 3,
+    "avg_time_to_find": 283.0,
+    "avg_all_know": 726.7,
+    "avg_coverage": 0.72,
+    "avg_duplicated": 0.24,
+    "avg_belief_error": 33.2
+   },
+   {
+    "loss": 1.0,
+    "runs": 10,
+    "found": 0,
+    "avg_time_to_find": null,
+    "avg_all_know": null,
+    "avg_coverage": 0.006,
+    "avg_duplicated": 1.0,
+    "avg_belief_error": 0.0
+   }
+  ],
+  "solo": [
+   {
+    "loss": 0.0,
+    "runs": 10,
+    "found": 10,
+    "avg_time_to_find": 187.5,
+    "avg_all_know": 602.0,
+    "avg_coverage": 0.898,
+    "avg_duplicated": 0.697,
+    "avg_belief_error": 34.6
+   },
+   {
+    "loss": 0.25,
+    "runs": 10,
+    "found": 10,
+    "avg_time_to_find": 187.5,
+    "avg_all_know": 602.0,
+    "avg_coverage": 0.898,
+    "avg_duplicated": 0.697,
+    "avg_belief_error": 34.6
+   },
+   {
+    "loss": 0.5,
+    "runs": 10,
+    "found": 10,
+    "avg_time_to_find": 187.5,
+    "avg_all_know": 602.0,
+    "avg_coverage": 0.898,
+    "avg_duplicated": 0.697,
+    "avg_belief_error": 34.6
+   },
+   {
+    "loss": 0.75,
+    "runs": 10,
+    "found": 10,
+    "avg_time_to_find": 187.5,
+    "avg_all_know": 602.0,
+    "avg_coverage": 0.898,
+    "avg_duplicated": 0.697,
+    "avg_belief_error": 34.6
+   },
+   {
+    "loss": 0.9,
+    "runs": 10,
+    "found": 10,
+    "avg_time_to_find": 187.5,
+    "avg_all_know": 602.0,
+    "avg_coverage": 0.898,
+    "avg_duplicated": 0.697,
+    "avg_belief_error": 34.6
+   },
+   {
+    "loss": 1.0,
+    "runs": 10,
+    "found": 10,
+    "avg_time_to_find": 187.5,
+    "avg_all_know": 602.0,
+    "avg_coverage": 0.898,
+    "avg_duplicated": 0.697,
+    "avg_belief_error": 34.6
+   }
+  ]
+ },
+ "scenarios": [
+  {
+   "scenario": "0% loss",
+   "mode": "ours",
+   "runs": 10,
+   "found": 10,
+   "avg_time_to_find": 148.6,
+   "avg_all_know": 172.9,
+   "avg_coverage": 0.654,
+   "avg_duplicated": 0.236,
+   "avg_belief_error": 8.0
+  },
+  {
+   "scenario": "0% loss",
+   "mode": "baseline",
+   "runs": 10,
+   "found": 3,
+   "avg_time_to_find": 281.0,
+   "avg_all_know": 720.0,
+   "avg_coverage": 0.732,
+   "avg_duplicated": 0.244,
+   "avg_belief_error": 34.8
+  },
+  {
+   "scenario": "0% loss",
+   "mode": "solo",
+   "runs": 10,
+   "found": 10,
+   "avg_time_to_find": 187.5,
+   "avg_all_know": 602.0,
+   "avg_coverage": 0.898,
+   "avg_duplicated": 0.697,
+   "avg_belief_error": 34.6
+  },
+  {
+   "scenario": "50% loss",
+   "mode": "ours",
+   "runs": 10,
+   "found": 10,
+   "avg_time_to_find": 149.4,
+   "avg_all_know": 176.9,
+   "avg_coverage": 0.651,
+   "avg_duplicated": 0.244,
+   "avg_belief_error": 8.4
+  },
+  {
+   "scenario": "50% loss",
+   "mode": "baseline",
+   "runs": 10,
+   "found": 3,
+   "avg_time_to_find": 283.7,
+   "avg_all_know": 722.3,
+   "avg_coverage": 0.726,
+   "avg_duplicated": 0.256,
+   "avg_belief_error": 34.7
+  },
+  {
+   "scenario": "50% loss",
+   "mode": "solo",
+   "runs": 10,
+   "found": 10,
+   "avg_time_to_find": 187.5,
+   "avg_all_know": 602.0,
+   "avg_coverage": 0.898,
+   "avg_duplicated": 0.697,
+   "avg_belief_error": 34.6
+  },
+  {
+   "scenario": "90% loss",
+   "mode": "ours",
+   "runs": 10,
+   "found": 10,
+   "avg_time_to_find": 151.8,
+   "avg_all_know": 188.9,
+   "avg_coverage": 0.651,
+   "avg_duplicated": 0.25,
+   "avg_belief_error": 11.7
+  },
+  {
+   "scenario": "90% loss",
+   "mode": "baseline",
+   "runs": 10,
+   "found": 3,
+   "avg_time_to_find": 283.0,
+   "avg_all_know": 726.7,
+   "avg_coverage": 0.72,
+   "avg_duplicated": 0.24,
+   "avg_belief_error": 33.2
+  },
+  {
+   "scenario": "90% loss",
+   "mode": "solo",
+   "runs": 10,
+   "found": 10,
+   "avg_time_to_find": 187.5,
+   "avg_all_know": 602.0,
+   "avg_coverage": 0.898,
+   "avg_duplicated": 0.697,
+   "avg_belief_error": 34.6
+  },
+  {
+   "scenario": "blackout @t10",
+   "mode": "ours",
+   "runs": 10,
+   "found": 10,
+   "avg_time_to_find": 151.0,
+   "avg_all_know": 516.5,
+   "avg_coverage": 0.984,
+   "avg_duplicated": 0.478,
+   "avg_belief_error": 28.0
+  },
+  {
+   "scenario": "blackout @t10",
+   "mode": "baseline",
+   "runs": 10,
+   "found": 0,
+   "avg_time_to_find": null,
+   "avg_all_know": null,
+   "avg_coverage": 0.332,
+   "avg_duplicated": 0.21,
+   "avg_belief_error": 9.1
+  },
+  {
+   "scenario": "blackout @t10",
+   "mode": "solo",
+   "runs": 10,
+   "found": 10,
+   "avg_time_to_find": 187.5,
+   "avg_all_know": 602.0,
+   "avg_coverage": 0.898,
+   "avg_duplicated": 0.697,
+   "avg_belief_error": 34.6
+  },
+  {
+   "scenario": "drone 1 killed @t40",
+   "mode": "ours",
+   "runs": 10,
+   "found": 10,
+   "avg_time_to_find": 221.7,
+   "avg_all_know": 240.7,
+   "avg_coverage": 0.671,
+   "avg_duplicated": 0.162,
+   "avg_belief_error": 8.8
+  },
+  {
+   "scenario": "drone 1 killed @t40",
+   "mode": "baseline",
+   "runs": 10,
+   "found": 2,
+   "avg_time_to_find": 382.0,
+   "avg_all_know": 720.0,
+   "avg_coverage": 0.652,
+   "avg_duplicated": 0.195,
+   "avg_belief_error": 36.2
+  },
+  {
+   "scenario": "drone 1 killed @t40",
+   "mode": "solo",
+   "runs": 10,
+   "found": 10,
+   "avg_time_to_find": 245.6,
+   "avg_all_know": 599.6,
+   "avg_coverage": 0.856,
+   "avg_duplicated": 0.45,
+   "avg_belief_error": 28.6
+  },
+  {
+   "scenario": "beacon dies on contact",
+   "mode": "ours",
+   "runs": 10,
+   "found": 10,
+   "avg_time_to_find": 196.0,
+   "avg_all_know": 215.8,
+   "avg_coverage": 0.702,
+   "avg_duplicated": 0.272,
+   "avg_belief_error": 8.3
+  },
+  {
+   "scenario": "beacon dies on contact",
+   "mode": "baseline",
+   "runs": 10,
+   "found": 6,
+   "avg_time_to_find": 981.8,
+   "avg_all_know": 1080.0,
+   "avg_coverage": 0.788,
+   "avg_duplicated": 0.25,
+   "avg_belief_error": 35.9
+  },
+  {
+   "scenario": "beacon dies on contact",
+   "mode": "solo",
+   "runs": 10,
+   "found": 10,
+   "avg_time_to_find": 254.7,
+   "avg_all_know": 1104.3,
+   "avg_coverage": 0.982,
+   "avg_duplicated": 0.898,
+   "avg_belief_error": 34.4
+  },
+  {
+   "scenario": "beacon off (no signal)",
+   "mode": "ours",
+   "runs": 10,
+   "found": 10,
+   "avg_time_to_find": 282.4,
+   "avg_all_know": 306.5,
+   "avg_coverage": 0.842,
+   "avg_duplicated": 0.291,
+   "avg_belief_error": 9.0
+  },
+  {
+   "scenario": "beacon off (no signal)",
+   "mode": "baseline",
+   "runs": 10,
+   "found": 6,
+   "avg_time_to_find": 1140.8,
+   "avg_all_know": 720.0,
+   "avg_coverage": 0.871,
+   "avg_duplicated": 0.261,
+   "avg_belief_error": 38.9
+  },
+  {
+   "scenario": "beacon off (no signal)",
+   "mode": "solo",
+   "runs": 10,
+   "found": 10,
+   "avg_time_to_find": 637.9,
+   "avg_all_know": 1175.8,
+   "avg_coverage": 0.999,
+   "avg_duplicated": 0.946,
+   "avg_belief_error": 35.5
+  }
+ ],
+ "seconds": 145.7
+}

@@ -1,24 +1,16 @@
-"""Per-drone decision agents.
+"""Per-drone decision agent.
 
-The rules propose, the LLM chooses:
-  build_candidates(state) -> (candidates, default_index)   legal options + one-line facts
-  decide_rules(state)     -> (action, arg, reason)          the default, instant and deterministic
-  submit_llm(...)         -> Future[(choice, reason, usage, latency)]
+    decide(state) -> (action, argument, reason)
 
-agent.py never sees the true world, only one drone's `state`.
+Each drone runs its own copy and calls it on events (sector done, signal heard, teammate
+lost...). It is a pure function of that one drone's `state`: it never sees the true world
+or another drone's internals, only what this drone has sensed or heard over the radio.
+Rules-based: instant, deterministic, explainable, and needs no network.
 """
-import json
-import os
-import time
-from concurrent.futures import ThreadPoolExecutor
+from world import RENDEZVOUS_SKIP_IF_HEARD, SECTOR_LABELS, cheb, sector_center
 
-from world import (GRID_SIZE, RENDEZVOUS_SKIP_IF_HEARD, SECTOR_LABELS, SECTOR_SIZE, cheb,
-                   sector_center)
-
-ACTIONS = ["SEARCH_SECTION", "FOLLOW_SIGNAL", "GO_TO_RENDEZVOUS", "GO_TO_TEAMMATE",
-           "CLIMB_TO_RELAY", "RETURN_HOME"]
-MODEL = "claude-haiku-5-5"
-MAX_CANDIDATES = 8
+ACTIONS = ["SEARCH_SECTION", "FOLLOW_SIGNAL", "SEARCH_LAST_SIGNAL", "GO_TO_RENDEZVOUS",
+           "GO_TO_TEAMMATE", "CLIMB_TO_RELAY", "RETURN_HOME"]
 
 
 # ====================================================================== rules
@@ -142,10 +134,26 @@ def decide_default(state):
         bs = state["best_signal"] or {}
         return "FOLLOW_SIGNAL", None, f"Beacon reading {bs.get('strength', 0):.2f} near {tuple(bs.get('position', pos))}; leaving the pattern to search around it."
 
+    est = state.get("estimate")
+    if ev == "BEACON_SILENT" and est and est["probability_left"] >= 0.05:
+        return ("SEARCH_LAST_SIGNAL", None,
+                f"No beacon since tick {est['beacon_last_heard']}, but it was heard then: the estimate puts the hiker "
+                f"within ~{max(1, round(est['radius']))} cells of {tuple(est['center'])}. Checking there by camera first.")
+    if ev == "BEACON_LOST" and est:
+        return ("SEARCH_LAST_SIGNAL", None,
+                f"Beacon went silent after tick {est['beacon_last_heard']}; my readings put the hiker within "
+                f"~{max(1, round(est['radius']))} cells of {tuple(est['center'])}. Checking the likeliest spots by camera.")
+    if ev == "RELAUNCHED" and est and est["probability_left"] >= 0.05:
+        return ("SEARCH_LAST_SIGNAL", None,
+                f"Fresh battery; {int(est['probability_left'] * 100)}% of the estimate around "
+                f"{tuple(est['center'])} is still unchecked.")
+
     if ev == "RENDEZVOUS_DUE":
         nr = state["next_rendezvous_tick"]
         if state["current_action"] == "FOLLOW_SIGNAL" and state["recent_signal"]:
             return _keep(state, f"Skipping the tick-{nr} rendezvous: I'm on a live beacon signal.")
+        if state["current_action"] == "SEARCH_LAST_SIGNAL":
+            return _keep(state, f"Skipping the tick-{nr} rendezvous: I'm checking where the beacon was last heard.")
         if not alive:
             return _keep(state, "No teammates presumed alive, so no one to meet; continuing.")
         t = state["tick"]
@@ -155,7 +163,7 @@ def decide_default(state):
         return "GO_TO_RENDEZVOUS", None, f"Rendezvous at tick {nr}; haven't heard from drone(s) {silent} recently."
 
     if ev == "LOST_CONTACT":
-        if state["current_action"] in ("GO_TO_RENDEZVOUS", "FOLLOW_SIGNAL") or (
+        if state["current_action"] in ("GO_TO_RENDEZVOUS", "FOLLOW_SIGNAL", "SEARCH_LAST_SIGNAL") or (
                 state["current_action"] == "SEARCH_SECTION"
                 and state["sector_progress"].get(state["current_target"], 1) < 1):
             j = state["event_arg"]
@@ -173,189 +181,19 @@ def decide_default(state):
     prefix = {"MISSED_MEETUP": f"Drone(s) {state['event_arg']} missed the meetup, so their sectors are open. ",
               "LOST_CONTACT": f"Drone {state['event_arg']} presumed lost. ",
               "SECTOR_COMPLETE": f"Sector {state['current_target']} done. ",
-              "SIGNAL_LOST": "Signal trail went cold. "}.get(ev, "")
+              "SIGNAL_LOST": "Signal trail went cold. ",
+              "ESTIMATE_EXHAUSTED": "Checked the likely spots around the last signal; widening to a camera search. ",
+              "BEACON_SILENT": "Whole mountain swept with no beacon: it must be off. Re-searching by camera. ",
+              "BEACON_LOST": "Beacon went silent. ",
+              "RELAUNCHED": "Fresh battery. "}.get(ev, "")
     return "SEARCH_SECTION", s, f"{prefix}Taking sector {s}: {_sector_note(state, s, now, plan)}."
 
 
-def build_candidates(state):
-    """Short list of legal options with one-line facts. Returns (candidates, default_index)."""
-    a, arg, reason = decide_default(state)
-    cands = [{"action": a, "arg": arg, "note": reason}]
-
-    def add(action, argument, note):
-        if len(cands) >= MAX_CANDIDATES:
-            return
-        if any(c["action"] == action and c["arg"] == argument for c in cands):
-            return
-        cands.append({"action": action, "arg": argument, "note": note})
-
-    pos = state["position"]
-    mates = state["teammates"]
-    contact = set(state["in_contact_with"])
-    alive = [j for j, t in mates.items() if t["alive_presumed"]]
-
-    if state["current_action"] in ACTIONS and state["current_action"] != "RETURN_HOME":
-        if not (state["current_action"] == "SEARCH_SECTION"
-                and state["sector_progress"].get(state["current_target"], 1) >= 1):
-            add(state["current_action"], state["current_target"], "Continue what I'm doing now.")
-
-    if not state["hiker_found"]:
-        ranked, now, plan = _rank_sectors(state)
-        for s in ranked[:3]:
-            add("SEARCH_SECTION", s, f"Sector {s}: {_sector_note(state, s, now, plan)}, "
-                                     f"{cheb(pos, sector_center(s))} ticks away.")
-        if state["best_signal"] and (state["recent_signal"] or state["event"] == "SIGNAL_DETECTED"):
-            bs = state["best_signal"]
-            add("FOLLOW_SIGNAL", None, f"Best beacon reading {bs['strength']:.2f} at {tuple(bs['position'])}, tick {bs['tick']}.")
-
-    rp = tuple(state["rendezvous_point"])
-    add("GO_TO_RENDEZVOUS", None, f"Rendezvous {rp} is {cheb(pos, rp)} ticks away; next meetup at tick {state['next_rendezvous_tick']}.")
-
-    for j in alive:
-        if j in contact:
-            continue
-        knows = mates[j]["knows_hiker_found"]
-        if state["hiker_found"] and not knows:
-            tp = tuple(mates[j]["position"])
-            add("GO_TO_TEAMMATE", j, f"Drone {j} doesn't know about the hiker; last seen at {tp} (tick {mates[j]['last_heard']}), {cheb(pos, tp)} ticks away.")
-
-    relay = state.get("relay_point")
-    if relay and any(j not in contact for j in alive) \
-            and state["relay_height"] - state["height"] >= 0.15:
-        add("CLIMB_TO_RELAY", None,
-            f"High ground at {tuple(relay)} (height {int(state['relay_height'] * 100)}%, I'm at "
-            f"{int(state['height'] * 100)}%) is {cheb(pos, relay)} ticks away; altitude gives radio line of sight over the hills.")
-
-    home = tuple(state["base_position"])
-    add("RETURN_HOME", None, f"Base is {cheb(pos, home)} ticks away; battery {int(state['battery'] * 100)}%.")
-    return cands, 0
+def decide(state):
+    """The drone's decision: (action, argument, one-line reason)."""
+    action, arg, reason = decide_default(state)
+    assert action in ACTIONS, action
+    return action, arg, reason
 
 
-def decide_rules(state):
-    cands, i = build_candidates(state)
-    c = cands[i]
-    return c["action"], c["arg"], c["note"]
-
-
-# ====================================================================== LLM
-SYSTEM_PROMPT = f"""You are the onboard decision agent of one search-and-rescue drone in a team of three, searching a {GRID_SIZE}x{GRID_SIZE} mountain grid (9 sectors A-I, {SECTOR_SIZE}x{SECTOR_SIZE} each; A B C is the top row, D E F the middle, G H I the bottom row; x grows to the right, y grows downwards). The team launched from a base on the edge of the map (`base_position`); each drone owns a wedge of three sectors fanning out from it for a lost hiker carrying a radio beacon. Drones sweep in wide lanes listening for the beacon, then close in with the camera when they hear it.
-
-There is no central controller. You only know what your own drone has sensed or heard from teammates over a radio that drops out (range limit, mountains between drones block line of sight, packet loss). Drones fly just above the terrain, so a drone on high ground can talk over the hills. Teammates you can't hear are assumed to be following their last known plan until they are presumed lost.
-
-Shared goal: find the hiker as fast as possible, cover the mountain with as little duplicated searching as possible, and make sure every live drone learns when the hiker is found.
-
-Guidelines:
-- Avoid sectors a live teammate is searching or is about to search; prefer unclaimed sectors, especially ones owned by teammates presumed lost.
-- A fresh beacon reading is the strongest clue you have.
-- Rendezvous trips cost search time; they are worth it when you have been out of contact.
-- Never strand the drone: low battery means going home.
-- The `default` option is a safe rules-based choice. Pick something else only if you can name a concrete reason from the data.
-
-You will receive the drone's situation as JSON with a numbered `candidates` list. Pick exactly one candidate by index. `reason` must be one first-person sentence of at most 25 words that cites the concrete fact that decided it."""
-
-OUTPUT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "choice": {"type": "integer"},
-        "reason": {"type": "string"},
-    },
-    "required": ["choice", "reason"],
-    "additionalProperties": False,
-}
-
-_client = None
-_executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="drone-agent")
-
-
-def llm_available():
-    return bool(os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN"))
-
-
-def _get_client():
-    global _client
-    if _client is None:
-        from anthropic import Anthropic
-        _client = Anthropic(max_retries=0)
-    return _client
-
-
-def llm_payload(state, cands, default, memory):
-    """Compact view of the state. The raw searched-cell set is never sent."""
-    t = state["tick"]
-    return {
-        "drone": state["id"],
-        "tick": t,
-        "event": state["event"],
-        "event_arg": state["event_arg"],
-        "position": list(state["position"]),
-        "base_position": list(state["base_position"]),
-        "battery_pct": int(state["battery"] * 100),
-        "terrain_height_pct": int(state["height"] * 100),
-        "doing_now": {"action": state["current_action"], "arg": state["current_target"]},
-        "my_sectors": state["my_sectors"],
-        "sector_progress_pct": {s: int(p * 100) for s, p in state["sector_progress"].items()},
-        "best_signal": state["best_signal"] and {
-            "strength": state["best_signal"]["strength"],
-            "position": list(state["best_signal"]["position"]),
-            "ticks_ago": t - state["best_signal"]["tick"]},
-        "hiker_found": state["hiker_found"],
-        "teammates": {
-            str(j): {"last_known_position": list(m["position"]), "heard_ticks_ago": t - m["last_heard"],
-                     "doing": f"{m['current_action']} {m['current_target'] or ''}".strip(),
-                     "presumed_alive": m["alive_presumed"], "knows_hiker_found": m["knows_hiker_found"],
-                     "in_radio_contact_now": j in state["in_contact_with"]}
-            for j, m in state["teammates"].items()
-        },
-        "next_rendezvous_tick": state["next_rendezvous_tick"],
-        "my_recent_decisions": memory,
-        "candidates": [{"index": i, "action": c["action"], "arg": c["arg"], "fact": c["note"],
-                        **({"default": True} if i == default else {})}
-                       for i, c in enumerate(cands)],
-    }
-
-
-def _call_llm(payload, n_cands, timeout):
-    t0 = time.monotonic()
-    client = _get_client().with_options(timeout=timeout, max_retries=0)
-    resp = client.messages.create(
-        model=MODEL,
-        max_tokens=1024,
-        system=SYSTEM_PROMPT,
-        output_config={"effort": "low", "format": {"type": "json_schema", "schema": OUTPUT_SCHEMA}},
-        messages=[{"role": "user", "content": json.dumps(payload, separators=(",", ":"))}],
-    )
-    latency = time.monotonic() - t0
-    if resp.stop_reason == "refusal":
-        raise ValueError("refusal")
-    text = next((b.text for b in resp.content if b.type == "text"), None)
-    if text is None:
-        raise ValueError(f"no text block (stop_reason={resp.stop_reason})")
-    data = json.loads(text)
-    choice = data["choice"]
-    if not isinstance(choice, int) or not 0 <= choice < n_cands:
-        raise ValueError(f"invalid choice {choice!r}")
-    usage = {"in": resp.usage.input_tokens, "out": resp.usage.output_tokens}
-    return choice, str(data["reason"])[:200], usage, latency
-
-
-def submit_llm(state, cands, default, memory, timeout):
-    payload = llm_payload(state, cands, default, memory)
-    return _executor.submit(_call_llm, payload, len(cands), timeout)
-
-
-def describe_error(exc):
-    try:
-        import anthropic
-        if isinstance(exc, anthropic.APITimeoutError):
-            return "timeout"
-        if isinstance(exc, anthropic.RateLimitError):
-            return "rate limited"
-        if isinstance(exc, anthropic.AuthenticationError):
-            return "bad API key"
-        if isinstance(exc, anthropic.APIStatusError):
-            return f"API error {exc.status_code}"
-        if isinstance(exc, anthropic.APIConnectionError):
-            return "connection error"
-    except ImportError:
-        pass
-    return f"{type(exc).__name__}: {exc}"[:60]
+decide_rules = decide  # old name

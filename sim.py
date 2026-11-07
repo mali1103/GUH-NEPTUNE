@@ -1,4 +1,11 @@
-"""Simulation: tick loop, comms, async agent decisions, metrics, headless runner."""
+"""Simulation: tick loop, comms, decisions, metrics, headless runner and benchmarks.
+
+Modes:
+  ours      decentralised: pre-launch plan + radio gossip + rendezvous (this project)
+  baseline  naive central hub at base; drones hover when they can't reach it
+  solo      no coordination at all: no plan, no radio, each drone searches the whole
+            mountain in its own random order (shows what teamwork is worth)
+"""
 import random
 import threading
 import time
@@ -10,37 +17,36 @@ from baseline import Hub
 from drone import COLORS, Drone
 from world import (
     COMMS_RANGE, GRID_SIZE, MAX_TICKS, NUM_DRONES, RENDEZVOUS_POINT,
-    SECTOR_LABELS, SECTOR_SIZE, World, dist,
+    SECTOR_LABELS, SECTOR_SIZE, World, cheb, dist,
 )
 
-LLM_TIMEOUT_FREE = 5.0  # measured ~3s per Haiku decision; 2s fell back every time
-LLM_TIMEOUT_WAIT = 8.0
+MODES = ["ours", "baseline", "solo"]
 
 
 class Sim:
-    def __init__(self, seed=42, mode="ours", start="random"):
+    def __init__(self, seed=42, mode="ours", start="random", beacon="on"):
         self.lock = threading.RLock()
         self.tps = 8
         self.running = False
-        self.agent_mode = "rules"
-        self.wait_for_agents = True
         self.packet_loss = 0.0
         self.comms_enabled = True
         self.reveal = False
         self.scenario = {}
         self.start = start
+        self.beacon = beacon
         self.reset(seed, mode)
 
     # ------------------------------------------------------------ setup
-    def reset(self, seed=None, mode=None, start=None):
+    def reset(self, seed=None, mode=None, start=None, beacon=None):
         with self.lock:
             self.seed = self.seed if seed is None else int(seed)
             self.mode = self.mode if mode is None else mode
             self.start = self.start if start is None else start
-            self.world = World(self.seed, self.start)
+            self.beacon = self.beacon if beacon is None else beacon
+            self.world = World(self.seed, self.start, self.beacon)
             self.rng = random.Random(self.seed * 31 + 7)
-            base = self.mode == "baseline"
-            self.drones = [Drone(i, self.world, baseline=base) for i in range(NUM_DRONES)]
+            base, solo = self.mode == "baseline", self.mode == "solo"
+            self.drones = [Drone(i, self.world, baseline=base, solo=solo) for i in range(NUM_DRONES)]
             for d in self.drones:
                 d.pending_event = "LAUNCH"
             self.hub = Hub(self.world) if base else None
@@ -51,11 +57,13 @@ class Sim:
             self.log = deque(maxlen=300)
             self.metrics = {"found_tick": None, "found_by": None, "all_know_tick": None,
                             "msgs_sent": 0, "msgs_dropped": 0}
-            self.llm = {"calls": 0, "ok": 0, "fallbacks": 0, "latency": 0.0, "in": 0, "out": 0,
-                        "last_error": None}
-            self.decision_seq = 0
-            if not base:
-                for d in self.drones:
+            self.belief_err_sum = 0.0
+            self.belief_err_n = 0
+            for d in self.drones:
+                if solo:
+                    self.add_log(0, d.id, "plan", "LAUNCH", d.action, d.arg,
+                                 f"No team plan: searching the whole mountain in my own order {''.join(d.priority)}.")
+                elif not base:
                     self.add_log(0, d.id, "plan", "LAUNCH", d.action, d.arg,
                                  f"Pre-launch plan: own sectors {d.my_sectors}, then {d.priority[3:]}.")
 
@@ -76,14 +84,10 @@ class Sim:
             d = self.drones[i]
             if d.alive:
                 d.alive = False
-                d.pending = None
                 d.reason = "Destroyed (killed from the control panel)."
                 self.add_log(self.tick, i, "sim", "KILLED", "-", None, "Drone lost: no more movement or radio.")
 
     # ------------------------------------------------------------ tick
-    def agents_busy(self):
-        return any(d.pending for d in self.drones)
-
     def step(self):
         with self.lock:
             if self.status in ("complete", "failed"):
@@ -101,24 +105,28 @@ class Sim:
                     self.add_log(t, d.id, "sensor", "HIKER_FOUND", "-", None,
                                  f"Hiker found at {self.world.hiker}!")
 
-            if self.mode == "ours":
-                self._gossip(t)
-                for d in self.drones:
-                    ev = d.check_event(t)
-                    if ev:
-                        self._decide(d, t, *ev)
-            else:
+            if self.mode == "baseline":
                 for d in self.drones:
                     ev = d.check_event(t)
                     if ev:
                         self._baseline_event(d, t, *ev)
                 self.hub.tick(self, t)
+            else:
+                if self.mode == "ours":
+                    self._gossip(t)
+                else:
+                    self.links = []  # solo: no radio at all
+                for d in self.drones:
+                    ev = d.check_event(t)
+                    if ev:
+                        self._decide(d, t, *ev)
 
+            self._track_beliefs()
             alive = [d for d in self.drones if d.alive]
             if self.metrics["found_tick"] and self.metrics["all_know_tick"] is None \
                     and alive and all(d.hiker_found for d in alive):
                 self.metrics["all_know_tick"] = t
-            if all((not d.alive) or d.landed for d in self.drones) or t >= MAX_TICKS:
+            if all(d.finished for d in self.drones) or t >= MAX_TICKS:
                 self.status = "complete" if self.metrics["found_tick"] else "failed"
                 self.running = False
 
@@ -145,67 +153,22 @@ class Sim:
                 a.receive(mb, t)
             self.links.append({"a": a.id, "b": b.id, "ok": ok_ab or ok_ba})
 
-    # ------------------------------------------------------------ decisions (ours)
+    def _track_beliefs(self):
+        """How far off is each drone's picture of its teammates? (ground-truth metric)"""
+        flying = [d for d in self.drones if d.alive and not d.landed]
+        for d in flying:
+            for o in flying:
+                if o.id != d.id:
+                    self.belief_err_sum += cheb(d.teammates[o.id]["position"], o.pos)
+                    self.belief_err_n += 1
+
+    # ------------------------------------------------------------ decisions
     def _decide(self, d, t, event, arg):
-        state = d.build_state(t, event, arg)
-        cands, default = agent.build_candidates(state)
-        c = cands[default]
-        if self.agent_mode == "llm" and agent.llm_available() and event != "LOW_BATTERY":
-            timeout = LLM_TIMEOUT_WAIT if self.wait_for_agents else LLM_TIMEOUT_FREE
-            if d.pending:  # a newer event supersedes the in-flight decision
-                d.pending["future"].cancel()
-            self.decision_seq += 1
-            d.pending = {"id": self.decision_seq, "start": time.monotonic(), "timeout": timeout,
-                         "cands": cands, "default": default, "event": event, "tick": t,
-                         "future": agent.submit_llm(state, cands, default, list(d.memory), timeout)}
-            self.llm["calls"] += 1
-            if not self.wait_for_agents:
-                d.apply(c["action"], c["arg"], c["note"], "rules (provisional)", t, event)
-        else:
-            if d.pending:  # e.g. LOW_BATTERY: drop any slower decision still in flight
-                d.pending["future"].cancel()
-                d.pending = None
-            d.apply(c["action"], c["arg"], c["note"], "rules", t, event)
-            self.add_log(t, d.id, "rules", event, c["action"], c["arg"], c["note"])
+        """Each drone decides for itself, from its own state only."""
+        action, argument, reason = agent.decide(d.build_state(t, event, arg))
+        if d.apply(action, argument, reason, "rules", t, event):
+            self.add_log(t, d.id, "rules", event, action, argument, reason)
 
-    def poll_agents(self):
-        """Apply finished LLM decisions; fall back to rules on error/timeout."""
-        with self.lock:
-            for d in self.drones:
-                p = d.pending
-                if not p:
-                    continue
-                if not d.alive:
-                    d.pending = None
-                    continue
-                fut, t = p["future"], self.tick
-                if fut.done():
-                    d.pending = None
-                    try:
-                        choice, reason, usage, latency = fut.result()
-                    except Exception as e:  # noqa: BLE001 - any failure means rules fallback
-                        self._fallback(d, p, agent.describe_error(e))
-                        continue
-                    c = p["cands"][choice]
-                    self.llm["ok"] += 1
-                    self.llm["latency"] += latency
-                    self.llm["in"] += usage["in"]
-                    self.llm["out"] += usage["out"]
-                    tag = "llm" if choice == p["default"] else "llm (override)"
-                    if d.apply(c["action"], c["arg"], reason, tag, t, p["event"]):
-                        self.add_log(p["tick"], d.id, tag, p["event"], c["action"], c["arg"], reason)
-                elif time.monotonic() - p["start"] > p["timeout"] + 0.5:
-                    d.pending = None
-                    self._fallback(d, p, "timeout")
-
-    def _fallback(self, d, p, why):
-        c = p["cands"][p["default"]]
-        self.llm["fallbacks"] += 1
-        self.llm["last_error"] = why
-        if d.apply(c["action"], c["arg"], c["note"], f"fallback: {why}", self.tick, p["event"]):
-            self.add_log(p["tick"], d.id, f"rules (LLM {why})", p["event"], c["action"], c["arg"], c["note"])
-
-    # ------------------------------------------------------------ baseline drones
     def _baseline_event(self, d, t, event, arg):
         if event == "LOW_BATTERY":
             d.needs_orders = False  # don't wait for (or accept) hub orders any more
@@ -222,16 +185,9 @@ class Sim:
     def run_forever(self):
         while True:
             if self.running:
-                if self.agent_mode == "llm":
-                    self.poll_agents()
-                if not (self.wait_for_agents and self.agents_busy()):
-                    self.step()
-                    time.sleep(1.0 / max(1, self.tps))
-                else:
-                    time.sleep(0.05)
+                self.step()
+                time.sleep(1.0 / max(1, self.tps))
             else:
-                if self.agents_busy():
-                    self.poll_agents()
                 time.sleep(0.05)
 
     # ------------------------------------------------------------ output
@@ -244,6 +200,7 @@ class Sim:
         m = dict(self.metrics)
         m["coverage"] = round(len(union) / cells, 3)
         m["duplicated"] = round(len(dup) / max(1, len(union)), 3)
+        m["belief_error"] = round(self.belief_err_sum / self.belief_err_n, 1) if self.belief_err_n else 0.0
         m["ticks"] = self.tick
         return m, union, dup
 
@@ -261,42 +218,55 @@ class Sim:
                         owner.setdefault(c, d.id)
                 grid = [(3 if (x, y) in dup else owner.get((x, y), -1)) for y in range(g) for x in range(g)]
             hiker_known = self.metrics["found_tick"] is not None
-            llm = dict(self.llm)
-            llm["avg_latency"] = round(llm["latency"] / llm["ok"], 2) if llm["ok"] else None
-            llm["available"] = agent.llm_available()
+            flying = [d for d in self.drones if d.alive and not d.landed]
+            now_err = [cheb(d.teammates[o.id]["position"], o.pos) for d in flying for o in flying if o.id != d.id]
+            m["belief_error_now"] = round(sum(now_err) / len(now_err), 1) if now_err else 0.0
             return {
                 "tick": self.tick, "status": self.status, "running": self.running, "seed": self.seed,
-                "start": self.start,
-                "mode": self.mode, "agent_mode": self.agent_mode, "wait_for_agents": self.wait_for_agents,
+                "start": self.start, "mode": self.mode,
                 "tps": self.tps, "packet_loss": self.packet_loss, "comms_enabled": self.comms_enabled,
                 "view": view, "grid": grid, "links": self.links,
                 "hiker": self.world.hiker if (hiker_known or self.reveal) else None,
                 "hiker_found": hiker_known,
+                "beacon": {"mode": self.beacon, "alive": self.world.beacon_alive,
+                           "died_at": self.world.beacon_died_at},
                 "drones": [{
                     "id": d.id, "pos": d.pos, "color": COLORS[d.id], "battery": round(d.battery, 3),
                     "alive": d.alive, "landed": d.landed, "action": d.action, "arg": d.arg,
-                    "reason": d.reason, "source": d.source, "thinking": bool(d.pending),
+                    "reason": d.reason, "source": d.source,
                     "knows_found": d.hiker_found,
                     "known_pct": round(len(d.searched) / (g * g), 3),
                     "presumed_lost": [j for j in d.teammates if not d.alive_presumed(j, self.tick)],
                     "best_signal": d.best_signal,
+                    "search_mode": "camera" if d.camera_mode else "beacon",
+                    "recharging": d.recharge_left,
+                    # what this drone BELIEVES about each teammate (may be stale or wrong)
+                    "beliefs": {j: {"pos": t["position"], "action": t["current_action"],
+                                    "target": t["current_target"], "age": self.tick - t["last_heard"],
+                                    "alive": d.alive_presumed(j, self.tick)}
+                                for j, t in d.teammates.items()},
+                    "estimate": ({"center": d.estimate["center"], "radius": d.estimate["radius"],
+                                  "left": round(d.estimate_left(), 2),
+                                  "cells": [[c[0], c[1], round(p, 4)] for c, p in sorted(
+                                      d.estimate["probs"].items(), key=lambda kv: -kv[1])[:150]]}
+                                 if d.estimate else None),
                 } for d in self.drones],
-                "metrics": m, "llm": llm,
+                "metrics": m,
                 "log": list(self.log)[-80:],
             }
 
     def world_json(self):
         return {"size": GRID_SIZE, "heights": [v for row in self.world.height for v in row],
                 "sector_size": SECTOR_SIZE, "comms_range": COMMS_RANGE,
-                "base": self.world.base, "start": self.start,
-                "plan": {i: s for i, s in self.world.own_sectors.items()},
+                "base": self.world.base, "start": self.start, "beacon": self.beacon,
+                "plan": {d.id: d.my_sectors for d in self.drones},
                 "rendezvous": RENDEZVOUS_POINT, "sectors": list(SECTOR_LABELS), "seed": self.seed,
                 "mode": self.mode}
 
 
 # ---------------------------------------------------------------- headless
-def run_headless(seed, mode="ours", packet_loss=0.0, scenario=None, start="random"):
-    sim = Sim(seed, mode, start)
+def run_headless(seed, mode="ours", packet_loss=0.0, scenario=None, start="random", beacon="on"):
+    sim = Sim(seed, mode, start, beacon)
     sim.packet_loss = packet_loss
     sim.scenario = scenario or {}
     while sim.status not in ("complete", "failed"):
@@ -306,28 +276,68 @@ def run_headless(seed, mode="ours", packet_loss=0.0, scenario=None, start="rando
     return m
 
 
+def _aggregate(runs):
+    found = [r for r in runs if r["found_tick"]]
+    know = [r["all_know_tick"] for r in found if r["all_know_tick"]]
+    n = len(runs)
+    return {
+        "runs": n, "found": len(found),
+        "avg_time_to_find": round(sum(r["found_tick"] for r in found) / len(found), 1) if found else None,
+        "avg_all_know": round(sum(know) / len(know), 1) if know else None,
+        "avg_coverage": round(sum(r["coverage"] for r in runs) / n, 3),
+        "avg_duplicated": round(sum(r["duplicated"] for r in runs) / n, 3),
+        "avg_belief_error": round(sum(r["belief_error"] for r in runs) / n, 1),
+    }
+
+
 SCENARIOS = [
     ("0% loss", 0.0, {}),
     ("50% loss", 0.5, {}),
     ("90% loss", 0.9, {}),
     ("blackout @t10", 0.0, {"blackout_at": 10}),
     ("drone 1 killed @t40", 0.0, {"kill_at": 40, "kill_id": 1}),
+    ("beacon dies on contact", 0.0, {"beacon": "dies"}),
+    ("beacon off (no signal)", 0.0, {"beacon": "off"}),
 ]
 
 
 def benchmark(seeds=5, start_seed=1):
+    """Failure scenarios x modes."""
     rows = []
     for name, loss, sc in SCENARIOS:
-        for mode in ("ours", "baseline"):
-            runs = [run_headless(s, mode, loss, sc) for s in range(start_seed, start_seed + seeds)]
-            found = [r for r in runs if r["found_tick"]]
-            know = [r["all_know_tick"] for r in found if r["all_know_tick"]]
-            rows.append({
-                "scenario": name, "mode": mode, "runs": len(runs),
-                "found": len(found),
-                "avg_time_to_find": round(sum(r["found_tick"] for r in found) / len(found), 1) if found else None,
-                "avg_all_know": round(sum(know) / len(know), 1) if know else None,
-                "avg_coverage": round(sum(r["coverage"] for r in runs) / len(runs), 3),
-                "avg_duplicated": round(sum(r["duplicated"] for r in runs) / len(runs), 3),
-            })
+        sc = dict(sc)
+        beacon = sc.pop("beacon", "on")
+        for mode in MODES:
+            runs = [run_headless(s, mode, loss, sc, beacon=beacon) for s in range(start_seed, start_seed + seeds)]
+            rows.append({"scenario": name, "mode": mode, **_aggregate(runs)})
     return rows
+
+
+LOSS_LEVELS = [0.0, 0.25, 0.5, 0.75, 0.9, 1.0]
+
+
+def resilience_curve(seeds=5, start_seed=1):
+    """Found rate and time to find vs packet loss, per mode. Solo uses no radio, so it is
+    flat; 'ours' at 100% loss is the pre-launch plan alone (no messages get through)."""
+    seed_range = range(start_seed, start_seed + seeds)
+    curve = {}
+    for mode in MODES:
+        if mode == "solo":
+            agg = _aggregate([run_headless(s, "solo") for s in seed_range])
+            curve[mode] = [{"loss": x, **agg} for x in LOSS_LEVELS]
+        else:
+            curve[mode] = [{"loss": x, **_aggregate([run_headless(s, mode, x) for s in seed_range])}
+                           for x in LOSS_LEVELS]
+    return curve
+
+
+def coordination_breakdown(seeds=5, start_seed=1):
+    """What each layer of teamwork is worth (radio otherwise perfect)."""
+    seed_range = range(start_seed, start_seed + seeds)
+    rows = [
+        ("No coordination (each drone alone)", [run_headless(s, "solo") for s in seed_range]),
+        ("Pre-launch plan only (radio dead)", [run_headless(s, "ours", 1.0) for s in seed_range]),
+        ("Plan + radio sharing (ours)", [run_headless(s, "ours") for s in seed_range]),
+        ("Central hub (baseline)", [run_headless(s, "baseline") for s in seed_range]),
+    ]
+    return [{"setup": name, **_aggregate(runs)} for name, runs in rows]

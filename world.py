@@ -31,6 +31,14 @@ BATTERY_DRAIN = 0.0014    # per tick -> ~700 ticks of flight
 BATTERY_RESERVE_TICKS = 20
 SIGNAL_FOLLOW_LIMIT = 40
 RELAY_HOVER_TICKS = 8
+RECHARGE_TICKS = 25       # battery swap at base before relaunching
+
+# Beacon failure modes (pick in the UI): the hiker's beacon is on, was never on (dead phone),
+# or dies BEACON_DIES_AFTER ticks after a drone first hears it.
+BEACON_MODES = ["on", "off", "dies"]
+BEACON_DIES_AFTER = 2       # ticks after first contact: just enough readings to estimate from
+BEACON_MODEL_NOISE = 0.07  # noise the drones assume when estimating (true noise + slack)
+ESTIMATE_DONE_MASS = 0.05  # stop the estimate search when <5% of the probability is left unseen
 MAX_TICKS = 2000
 
 # Terrain: heights are 0.0 (valley floor) .. 1.0 (highest peak).
@@ -129,10 +137,10 @@ def sector_center(label):
 
 
 @lru_cache(maxsize=None)
-def sector_rows(label):
-    """Lawnmower rows spaced at beacon width: each row's band covers rows y-R..y+R."""
+def sector_rows(label, R=BEACON_CLEAR_RADIUS):
+    """Lawnmower rows: each row's band covers rows y-R..y+R. R = beacon lane half-width
+    normally, or the camera radius when searching by sight."""
     _, y0, _, y1 = sector_bounds(label)
-    R = BEACON_CLEAR_RADIUS
     rows, r = [], y0 + R
     while True:
         rr = min(r, y1 - 1 - R)
@@ -193,7 +201,7 @@ def make_plan(base):
 
 # ---------------------------------------------------------------- world
 class World:
-    def __init__(self, seed=42, start="random"):
+    def __init__(self, seed=42, start="random", beacon="on"):
         self.seed = seed
         rng = random.Random(seed)
         edge = perimeter_cells()[rng.randrange(len(perimeter_cells()))]
@@ -203,6 +211,10 @@ class World:
         self.hiker = self._place_hiker(rng)
         self.noise_rng = random.Random(seed * 7919 + 1)
         self._relay_cache = {}
+        self.beacon_mode = beacon
+        self.beacon_alive = beacon != "off"
+        self.beacon_first_heard = None       # tick a drone first got a real reading
+        self.beacon_died_at = 0 if beacon == "off" else None
 
     # ------------------------------------------------------------ terrain
     @staticmethod
@@ -266,12 +278,25 @@ class World:
     def mast_altitude(self, c):
         return self.h(c) + MAST_HEIGHT
 
-    def beacon_reading(self, pos):
-        s = max(0.0, 1.0 - dist(pos, self.hiker) / BEACON_RANGE)
-        if s > 0 and not self.line_of_sight(pos, self.hiker, zb=self.h(self.hiker) + 0.01):
+    def beacon_model(self, pos, cell):
+        """Expected (noise-free) strength at `pos` if the hiker were at `cell`.
+        This is public physics + the terrain map: drones may use it to estimate."""
+        s = max(0.0, 1.0 - dist(pos, cell) / BEACON_RANGE)
+        if s > 0 and not self.line_of_sight(pos, cell, zb=self.h(cell) + 0.01):
             s *= 0.5  # mountain between drone and hiker
-        s += self.noise_rng.gauss(0, BEACON_NOISE)
-        return round(s, 3) if s >= SIGNAL_THRESHOLD else 0.0
+        return s
+
+    def beacon_reading(self, pos, tick=0):
+        if self.beacon_mode == "dies" and self.beacon_alive and self.beacon_first_heard is not None                 and tick >= self.beacon_first_heard + BEACON_DIES_AFTER:
+            self.beacon_alive = False
+            self.beacon_died_at = tick
+        true = self.beacon_model(pos, self.hiker) if self.beacon_alive else 0.0
+        s = true + self.noise_rng.gauss(0, BEACON_NOISE)
+        if s < SIGNAL_THRESHOLD:
+            return 0.0
+        if true > 0 and self.beacon_first_heard is None:
+            self.beacon_first_heard = tick
+        return round(s, 3)
 
     def hiker_within(self, pos, r=FIND_RADIUS):
         return cheb(pos, self.hiker) <= r

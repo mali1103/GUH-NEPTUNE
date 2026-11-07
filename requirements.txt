@@ -1,4 +1,2 @@
 fastapi
 uvicorn[standard]
-anthropic
-python-dotenv

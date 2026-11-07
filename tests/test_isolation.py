@@ -1,12 +1,11 @@
 """Proves the three drones are independent: they share information only over the
-simulated radio, and each LLM agent sees only its own drone's knowledge.
+simulated radio, and each drone decides only from its own knowledge.
 
     python tests/test_isolation.py        (no extra packages needed)
     pytest tests/                          (also works if you have pytest)
 
-No API key or network needed: the LLM is replaced by a stand-in.
 """
-import json
+import copy
 import random
 import sys
 import time
@@ -24,13 +23,8 @@ _LOS = World.line_of_sight
 _RANGE = COMMS_RANGE
 
 
-def _run(s, llm=False):
+def _run(s):
     while s.status not in ("complete", "failed"):
-        if llm:
-            s.poll_agents()
-            if s.agents_busy():
-                time.sleep(0.001)
-                continue
         s.step()
     return s
 
@@ -106,32 +100,33 @@ def test_every_message_is_physically_possible():
     assert count[0] > 1000, "too few deliveries to be a meaningful test"
 
 
-def test_each_llm_call_sees_only_its_own_drone():
-    """Each agent call carries its own drone's knowledge and memory, never the raw map."""
-    payloads = []
-    orig_call, orig_avail = agent._call_llm, agent.llm_available
+def test_each_decision_uses_only_its_own_drone_state():
+    """Every decision is a pure function of that drone's own state: replaying it later,
+    when the true world and the other drones have completely changed, gives the same answer.
+    And the state never contains ground truth the drone couldn't know."""
+    recorded = []
+    orig = agent.decide
 
-    def fake(payload, n, timeout):
-        payloads.append(payload)
-        return 0, "stand-in", {"in": 0, "out": 0}, 0.0
+    def spy(state):
+        out = orig(state)
+        recorded.append((copy.deepcopy(state), out))
+        return out
 
-    agent._call_llm, agent.llm_available = fake, (lambda: True)
+    agent.decide = spy
     try:
         for seed in range(1, 7):
-            s = sim.Sim(seed, "ours")
-            s.agent_mode, s.wait_for_agents = "llm", True
-            start = len(payloads)
-            _run(s, llm=True)
-            for p in payloads[start:]:
-                me = p["drone"]
-                assert "searched_cells" not in json.dumps(p), "raw searched cells sent to the LLM"
-                own_ticks = {e["tick"] for e in s.log if e["drone"] == me}
-                for m in p["my_recent_decisions"]:
-                    assert m["tick"] <= p["tick"], "memory from the future"
-                    assert m["tick"] in own_ticks, f"drone {me} was given another drone's memory"
+            for beacon in ("on", "dies"):
+                s = sim.Sim(seed, "ours", "random", beacon)
+                s.packet_loss = 0.3
+                _run(s)
+                for st, _ in recorded:
+                    if not st["hiker_found"]:
+                        assert st["hiker_position"] is None, "state leaks the hiker's position"
     finally:
-        agent._call_llm, agent.llm_available = orig_call, orig_avail
-    assert len(payloads) > 30, "too few LLM calls to be a meaningful test"
+        agent.decide = orig
+    assert len(recorded) > 100, "too few decisions to be a meaningful test"
+    for st, out in recorded:
+        assert orig(copy.deepcopy(st)) == out, f"drone {st['id']} tick {st['tick']}: decision changed on replay"
 
 
 if __name__ == "__main__":
