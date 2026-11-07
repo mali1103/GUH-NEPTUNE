@@ -14,7 +14,7 @@ import random
 from collections import deque
 
 from world import (
-    BATTERY_DRAIN, BATTERY_RESERVE_TICKS, BEACON_CLEAR_RADIUS, BEACON_MODEL_NOISE, BEACON_RANGE,
+    BATTERY_DRAIN, BATTERY_RESERVE_TICKS, TICK_SECONDS, BEACON_CLEAR_RADIUS, BEACON_MODEL_NOISE, BEACON_RANGE,
     ESTIMATE_DONE_MASS, LOST_TIMEOUT, MISSED_MEETUP_WAIT, RECHARGE_TICKS, RELAY_HOVER_TICKS,
     RENDEZVOUS_INTERVAL, RENDEZVOUS_POINT, SECTOR_LABELS, SECTOR_SIZE, SENSOR_RADIUS,
     SIGNAL_FOLLOW_LIMIT, SIGNAL_THRESHOLD, cells_in_disk, cells_in_radius, cheb, in_bounds,
@@ -44,6 +44,7 @@ class Drone:
         self.swaps = 0                   # battery swaps so far
         self.min_battery = 1.0           # lowest charge reached
         self.flight_ticks = 0            # ticks spent in the air (energy used)
+        self.resume = None               # what it was doing when it turned home for battery
 
         if solo:  # no team plan: the whole mountain, in this drone's own random order
             order = list(SECTOR_LABELS)
@@ -128,6 +129,8 @@ class Drone:
         return [j for j in self.teammates if self.alive_presumed(j, tick)]
 
     def next_rendezvous(self, tick):
+        if not RENDEZVOUS_INTERVAL:
+            return 10**9  # scheduled meetups are off
         return (tick // RENDEZVOUS_INTERVAL + 1) * RENDEZVOUS_INTERVAL
 
     def enter_camera_mode(self, valid_before, note):
@@ -369,11 +372,13 @@ class Drone:
         self.in_contact = set()
         if ev:
             self.auto_event = ev
+        cost = 1.0  # one tick of flight (hovering costs the same)
         if target and target != self.pos:
             nxt = step_toward(self.pos, target)
             if in_bounds(nxt):
+                cost += self.world.climb_cost(self.pos, nxt)  # going uphill costs extra
                 self.pos = nxt
-        self.battery = max(0.0, self.battery - BATTERY_DRAIN)
+        self.battery = max(0.0, self.battery - cost * BATTERY_DRAIN)
         self.min_battery = min(self.min_battery, self.battery)
         self.flight_ticks += 1
         if self.battery <= 0:
@@ -384,7 +389,8 @@ class Drone:
             self.landed = True
             if self.low_batt_done and not self.hiker_found:
                 self.recharge_left = RECHARGE_TICKS
-                self.reason = f"Swapping battery at base ({RECHARGE_TICKS} ticks), then relaunching."
+                self.reason = (f"Swapping battery at base (~{RECHARGE_TICKS * TICK_SECONDS // 60} min), "
+                               f"then going back to finish what I was doing.")
         cleared = cells_in_disk(self.pos, BEACON_CLEAR_RADIUS)  # would have heard the beacon here
         self.add_cells(cleared, tick)
         self.my_cells.update(cleared)
@@ -416,10 +422,9 @@ class Drone:
         for j in self.in_contact:
             self.teammates[j]["last_heard"] = tick
 
-        if auto == "RELAUNCHED":
-            return ("RELAUNCHED", None)
         # whole mountain swept for the beacon and nothing: it must be off. (Checked before the
-        # "everything searched, go home" path so the team re-searches by camera instead.)
+        # "everything searched, go home" path, and before deciding what to do after a battery
+        # swap, so the team re-searches by camera instead of going home.)
         if not self.baseline and not self.camera_mode and not self.hiker_found \
                 and not self.low_batt_done and len(self.searched) == len(self.world.height) ** 2:
             if self.heard:   # it was heard once, then went quiet: it died
@@ -429,11 +434,17 @@ class Drone:
             else:
                 self.enter_camera_mode(NEVER, "whole mountain swept with no beacon signal")
             return ("BEACON_SILENT", None)
+        if auto == "RELAUNCHED":
+            return ("RELAUNCHED", None)
         if self.action == "RETURN_HOME":
             return None
-        need_home = (cheb(self.pos, self.base) + BATTERY_RESERVE_TICKS) * BATTERY_DRAIN
+        # the real cost of flying home (climbs included) plus a reserve
+        need_home = (self.world.cost_home(self.pos) + BATTERY_RESERVE_TICKS) * BATTERY_DRAIN
         if not self.low_batt_done and self.battery <= need_home:
             self.low_batt_done = True
+            if self.action in ("SEARCH_SECTION", "FOLLOW_SIGNAL", "SEARCH_LAST_SIGNAL"):
+                self.resume = {"action": self.action, "arg": self.arg, "pos": self.pos,
+                               "row": self.cur_row, "tick": tick}
             return ("LOW_BATTERY", None)
         if self.hiker_found and not self.found_event_done:
             self.found_event_done = True
@@ -529,10 +540,12 @@ class Drone:
             "in_contact_with": sorted(self.in_contact),
             "next_rendezvous_tick": self.next_rendezvous(tick),
             "rendezvous_point": RENDEZVOUS_POINT,
+            "meetups_on": bool(RENDEZVOUS_INTERVAL),
             "height": self.world.h(self.pos),
             "relay_point": self.world.relay_point(self.pos),
             "relay_height": self.world.h(self.world.relay_point(self.pos)),
             "base_position": self.base,
+            "resume": self.resume,
             "plans": {j: ({"own": [], "priority": []} if self.solo else
                           {"own": self.world.own_sectors[j], "priority": self.world.priority[j]})
                       for j in self.world.own_sectors},
@@ -547,7 +560,8 @@ class Drone:
         if self.low_batt_done and action != "RETURN_HOME":
             return False
         if action == "GO_TO_RENDEZVOUS" and self.action != "GO_TO_RENDEZVOUS":
-            self.rdv_target = self.next_rendezvous(tick) if tick % RENDEZVOUS_INTERVAL else tick
+            self.rdv_target = (self.next_rendezvous(tick)
+                               if not RENDEZVOUS_INTERVAL or tick % RENDEZVOUS_INTERVAL else tick)
             if self.handled_rdv is not None and self.handled_rdv > tick:
                 self.rdv_target = self.handled_rdv
         if action == "FOLLOW_SIGNAL" and self.action != "FOLLOW_SIGNAL":
@@ -557,6 +571,10 @@ class Drone:
             self.relay_target = self.world.relay_point(self.pos)
         if action == "SEARCH_SECTION" and arg != self.arg:
             self.cur_row = None
+            if self.resume and self.resume["action"] == "SEARCH_SECTION" and self.resume["arg"] == arg:
+                self.cur_row = self.resume["row"]  # pick the lawnmower back up on the same row
+        if event == "RELAUNCHED":
+            self.resume = None
         if action != "FOLLOW_SIGNAL" and self.action == "FOLLOW_SIGNAL":
             self.signal_cooldown = tick
         self.action, self.arg, self.reason, self.source = action, arg, reason, source

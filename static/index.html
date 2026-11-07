@@ -341,11 +341,18 @@ function draw() {
 }
 
 const esc = (s) => String(s ?? "").replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
+
+// ---- real-world units: 1 tick = 10 s, 1 cell = 50 m (sent by the server)
+const TS = () => (W && W.tick_seconds) || 10;
+const mins = (t) => (t == null ? "-" : `${Math.round((t * TS()) / 60)} min`);
+const clock = (t) => { const s = Math.round(t * TS()), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m ${String(s % 60).padStart(2, "0")}s`; };
+const battMins = (b) => (W ? Math.max(0, Math.round((b * W.battery_ticks * TS()) / 60)) : 0);
 const fmtArg = (a) => (a === null || a === undefined ? "" : " " + a);
 
 function renderPanels() {
   const m = S.metrics;
-  $("status").textContent = `tick ${S.tick} · ${S.status}${S.mode === "baseline" ? " · BASELINE" : ""}`;
+  $("status").textContent = `${clock(S.tick)} (tick ${S.tick}) · ${S.status}${S.mode === "baseline" ? " · BASELINE" : ""}`;
   // keep the dropdowns in sync with the server (unless the user is using one)
   for (const [id, v] of [["beacon", S.beacon.mode], ["start", S.start], ["mode", S.mode]])
     if (document.activeElement !== $(id) && $(id).value !== v) $(id).value = v;
@@ -357,8 +364,8 @@ function renderPanels() {
   $("comms").classList.toggle("off", !S.comms_enabled);
   const metric = (k, v) => `<div class="metric"><div class="v">${v}</div><div class="k">${k}</div></div>`;
   $("metrics").innerHTML =
-    metric("time to find", m.found_tick ?? "-") +
-    metric("all drones know", m.all_know_tick ?? "-") +
+    metric("time to find", mins(m.found_tick)) +
+    metric("all drones know", mins(m.all_know_tick)) +
     metric("mountain searched", Math.round(m.coverage * 100) + "%") +
     metric("searched twice", Math.round(m.duplicated * 100) + "%") +
     metric("messages sent", m.msgs_sent) +
@@ -376,6 +383,7 @@ function renderPanels() {
         ${d.estimate ? `<span class="tag" style="background:#5c3a1f;color:#ffc078">estimate ±${d.estimate.radius} · ${Math.round(d.estimate.left * 100)}% unchecked</span>` : ""}
         <span class="tag">knows ${Math.round(d.known_pct * 100)}% of map${d.knows_found ? " · knows hiker found" : ""}${esc(lost)}</span></div>
       <div class="why">${esc(d.reason)}</div>
+      <div class="why">battery ${Math.round(d.battery * 100)}% · ~${battMins(d.battery)} min of flight left${d.swaps ? ` · ${d.swaps} swap${d.swaps > 1 ? "s" : ""}` : ""}</div>
       <div class="bar"><div style="width:${d.battery * 100}%;background:${d.battery < 0.25 ? "#ff6b6b" : "#51cf66"}"></div></div>
     </div>`;
   }).join("");
@@ -479,8 +487,8 @@ function renderEvidence(r) {
   $("benchstat").textContent = `Saved results: ${r.seeds} maps per setting (${r.seconds}s to compute).`;
   const B = r.breakdown;
   $("breakdown").innerHTML = `<table><tr><th>Setup</th><th>Found</th><th>Time to find</th><th>All drones know</th><th>Searched twice</th><th>Belief error</th><th>Drone flight time</th></tr>` +
-    B.map((x) => `<tr class="${x.setup.includes("ours") ? "hl" : ""}"><td>${x.setup}</td><td>${x.found}/${x.runs}</td><td>${num(x.avg_time_to_find)}</td>` +
-      `<td>${num(x.avg_all_know)}</td><td>${pct(x.avg_duplicated)}</td><td>${x.avg_belief_error}</td><td>${x.avg_flight_ticks ?? "-"}</td></tr>`).join("") + "</table>";
+    B.map((x) => `<tr class="${x.setup.includes("ours") ? "hl" : ""}"><td>${x.setup}</td><td>${x.found}/${x.runs}</td><td>${mins(x.avg_time_to_find)}</td>` +
+      `<td>${mins(x.avg_all_know)}</td><td>${pct(x.avg_duplicated)}</td><td>${x.avg_belief_error}</td><td>${mins(x.avg_flight_ticks)}</td></tr>`).join("") + "</table>";
   const [solo, plan, ours] = B;
   if (solo.avg_time_to_find && plan.avg_time_to_find && ours.avg_all_know && plan.avg_all_know) {
     $("breakdown").innerHTML += `<div class="takeaway">The <b>pre-launch plan</b> alone finds the hiker
@@ -488,22 +496,22 @@ function renderEvidence(r) {
       Adding the <b>radio</b> cuts double-searching from ${pct(plan.avg_duplicated)} to ${pct(ours.avg_duplicated)}
       and gets the news to every drone ${(plan.avg_all_know / ours.avg_all_know).toFixed(1)}× sooner.
       With the radio <b>completely dead</b>, the team still found the hiker on ${plan.found}/${plan.runs} maps.
-      Battery: ours flew ${ours.avg_flight_ticks} drone-ticks in total, vs ${solo.avg_flight_ticks} with no coordination${B[3] ? ` and ${B[3].avg_flight_ticks} for the central hub (its drones hover waiting for orders)` : ""}.</div>`;
+      Battery: ours used ${mins(ours.avg_flight_ticks)} of drone flight time in total, vs ${mins(solo.avg_flight_ticks)} with no coordination${B[3] ? ` and ${mins(B[3].avg_flight_ticks)} for the central hub (its drones hover waiting for orders)` : ""}.</div>`;
   }
   $("legend").innerHTML = SERIES.map((s) => `<span><i style="background:${s.color}"></i>${s.name}</span>`).join("");
   lineChart($("chartFound"), r.curve, { title: "Hiker found (% of maps)", value: (p) => p.found / p.runs, fmt: pct, yMax: 1 });
-  lineChart($("chartTime"), r.curve, { title: "Average time to find (ticks, when found)", value: (p) => p.avg_time_to_find, fmt: num });
+  lineChart($("chartTime"), r.curve, { title: "Average time to find (minutes, when found)", value: (p) => p.avg_time_to_find == null ? null : (p.avg_time_to_find * TS()) / 60, fmt: num });
   const L = r.curve.ours.map((p) => p.loss);
   $("curveTable").innerHTML = `<table><tr><th>Mode</th>${L.map((l) => `<th>${Math.round(l * 100)}% loss</th>`).join("")}</tr>` +
-    SERIES.map((s) => `<tr><td>${s.name}</td>${r.curve[s.key].map((p) => `<td>${p.found}/${p.runs} · ${num(p.avg_time_to_find)}</td>`).join("")}</tr>`).join("") +
-    "</table><div class='sub'>Each cell: maps where the hiker was found · average ticks to find.</div>";
+    SERIES.map((s) => `<tr><td>${s.name}</td>${r.curve[s.key].map((p) => `<td>${p.found}/${p.runs} · ${mins(p.avg_time_to_find)}</td>`).join("")}</tr>`).join("") +
+    "</table><div class='sub'>Each cell: maps where the hiker was found · average time to find.</div>";
   const label = { ours: "ours", baseline: "central hub", solo: "no coordination" };
   $("scenarios").innerHTML = `<table><tr><th>Scenario</th><th>Mode</th><th>Found</th><th>Time to find</th><th>All know</th><th>Searched</th><th>Searched twice</th><th>Flight time</th><th>Battery swaps</th><th>Lowest battery (avg / worst)</th><th>Ran flat</th></tr>` +
     r.scenarios.map((x) => `<tr class="${x.mode === "ours" ? "hl" : ""}"><td>${x.scenario}</td><td>${label[x.mode]}</td><td>${x.found}/${x.runs}</td>` +
-      `<td>${num(x.avg_time_to_find)}</td><td>${num(x.avg_all_know)}</td><td>${pct(x.avg_coverage)}</td><td>${pct(x.avg_duplicated)}</td>` +
-      `<td>${x.avg_flight_ticks ?? "-"}</td><td>${x.avg_swaps ?? "-"}</td>` +
+      `<td>${mins(x.avg_time_to_find)}</td><td>${mins(x.avg_all_know)}</td><td>${pct(x.avg_coverage)}</td><td>${pct(x.avg_duplicated)}</td>` +
+      `<td>${mins(x.avg_flight_ticks)}</td><td>${x.avg_swaps ?? "-"}</td>` +
       `<td>${x.avg_lowest_battery != null ? pct(x.avg_lowest_battery) + " / " + pct(x.worst_lowest_battery) : "-"}</td><td>${x.ran_flat ?? "-"}</td></tr>`).join("") +
-    "</table><div class='sub'>Flight time = total ticks in the air across all three drones (energy used). Lowest battery = the lowest charge any drone reached in a run (3% is the reserve that forces a return home).</div>";
+    "</table><div class='sub'>Flight time = total time in the air across all three drones (energy used). Batteries last 40 min; drones head home when only the trip back plus a 15% reserve is left, swap batteries (~4 min) and resume. Lowest battery = the lowest charge any drone reached in a run.</div>";
 }
 $("bench").onclick = async () => {
   $("benchstat").textContent = "Running… (about a minute)";

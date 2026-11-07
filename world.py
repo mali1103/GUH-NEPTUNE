@@ -9,6 +9,10 @@ import random
 from functools import lru_cache
 
 # ---------------------------------------------------------------- constants
+# Real-world scale: 1 tick = 10 s, 1 cell = 50 m, so 1 cell per tick = 5 m/s (a typical
+# search speed) and the 63 x 63 map is 3.15 km x 3.15 km (~10 km2).
+TICK_SECONDS = 10
+CELL_METERS = 50
 GRID_SIZE = 63
 SECTOR_SIZE = 21
 SECTOR_LABELS = "ABCDEFGHI"
@@ -22,16 +26,23 @@ BEACON_NOISE = 0.05
 SIGNAL_THRESHOLD = 0.15
 BEACON_CLEAR_RADIUS = 3   # a pass within this distance would have heard the beacon (even through a hill)
 FIND_RADIUS = 1
-RENDEZVOUS_INTERVAL = 150 # ticks (measured: fewer, longer gaps beat 90/120 on this map)
+# Scheduled meetups: None = off. With real 40-minute batteries, drones return to base every
+# battery anyway and sync with whoever they meet; dedicated meetup flights cost more than they
+# gained in every tested scenario (e.g. 33 vs 45 min to find). Set e.g. 150 to turn them back on.
+RENDEZVOUS_INTERVAL = None
 RENDEZVOUS_POINT = (31, 31)
 RENDEZVOUS_SKIP_IF_HEARD = 15  # skip the trip if every live teammate was heard this recently
-LOST_TIMEOUT = 180        # ticks of silence before a teammate is presumed lost (> interval)
+LOST_TIMEOUT = 300        # 50 min of silence (longer than a battery lasts) = presumed lost
 MISSED_MEETUP_WAIT = 5    # ticks to wait at the rendezvous for a missing drone
-BATTERY_DRAIN = 0.0014    # per tick -> ~700 ticks of flight
-BATTERY_RESERVE_TICKS = 20
+BATTERY_MINUTES = 40      # a search quadcopter (e.g. DJI Matrice 30T ~41 min)
+BATTERY_TICKS = BATTERY_MINUTES * 60 // TICK_SECONDS   # 240 ticks of level flight
+BATTERY_DRAIN = 1 / BATTERY_TICKS
+BATTERY_RESERVE_TICKS = 36  # land with ~15% (6 min) left: real pilots keep a margin for wind and cold
+TERRAIN_RELIEF_M = 600    # terrain height 0..1 spans 600 m from valley floor to highest peak
+CLIMB_RATE_MS = 3         # climbing is slow: every metre climbed costs extra flight energy
 SIGNAL_FOLLOW_LIMIT = 40
 RELAY_HOVER_TICKS = 8
-RECHARGE_TICKS = 25       # battery swap at base before relaunching
+RECHARGE_TICKS = 24       # battery swap at base before relaunching (4 min)
 
 # Beacon failure modes (pick in the UI): the hiker's beacon is on, was never on (dead phone),
 # or dies BEACON_DIES_AFTER ticks after a drone first hears it.
@@ -39,7 +50,7 @@ BEACON_MODES = ["on", "off", "dies"]
 BEACON_DIES_AFTER = 2       # ticks after first contact: just enough readings to estimate from
 BEACON_MODEL_NOISE = 0.07  # noise the drones assume when estimating (true noise + slack)
 ESTIMATE_DONE_MASS = 0.05  # stop the estimate search when <5% of the probability is left unseen
-MAX_TICKS = 2000
+MAX_TICKS = 2000          # ~5.5 hours
 
 # Terrain: heights are 0.0 (valley floor) .. 1.0 (highest peak).
 MAP_SCALE = GRID_SIZE / 30  # terrain features scale with the map
@@ -211,6 +222,7 @@ class World:
         self.hiker = self._place_hiker(rng)
         self.noise_rng = random.Random(seed * 7919 + 1)
         self._relay_cache = {}
+        self._home_cache = {}
         self.beacon_mode = beacon
         self.beacon_alive = beacon != "off"
         self.beacon_first_heard = None       # tick a drone first got a real reading
@@ -300,6 +312,22 @@ class World:
 
     def hiker_within(self, pos, r=FIND_RADIUS):
         return cheb(pos, self.hiker) <= r
+
+    def climb_cost(self, a, b):
+        """Extra battery (in ticks of level flight) for flying from cell a to b uphill."""
+        rise = max(0.0, self.h(b) - self.h(a)) * TERRAIN_RELIEF_M
+        return rise / CLIMB_RATE_MS / TICK_SECONDS
+
+    def cost_home(self, pos):
+        """Battery (in ticks of flight) to fly from pos straight back to base, climbs included."""
+        if pos not in self._home_cache:
+            cost, here = 0.0, pos
+            while here != self.base:
+                nxt = step_toward(here, self.base)
+                cost += 1 + self.climb_cost(here, nxt)
+                here = nxt
+            self._home_cache[pos] = cost
+        return self._home_cache[pos]
 
     def relay_point(self, pos):
         """Best nearby high ground: tall, but not too far to fly to."""

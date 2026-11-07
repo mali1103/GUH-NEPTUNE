@@ -122,6 +122,15 @@ def decide_default(state):
             return "RETURN_HOME", None, "Hiker found and every live teammate knows; returning to base."
         j = min(unaware, key=lambda k: (cheb(pos, tuple(mates[k]["position"])), k))
         tp = tuple(mates[j]["position"])
+        if not state.get("meetups_on", True):
+            # No scheduled meetups: base is where everyone comes back to swap batteries,
+            # so landing there means every teammate hears the news on its next visit.
+            home = tuple(state["base_position"])
+            if ev == "ARRIVED" and state["current_action"] == "GO_TO_TEAMMATE":
+                return "RETURN_HOME", None, f"Drone {j} wasn't at its last known spot; landing at base, where it will come to swap batteries."
+            if cheb(pos, tp) < cheb(pos, home):
+                return "GO_TO_TEAMMATE", j, f"Hiker found; drone {j} doesn't know and its last position {tp} is closer than base."
+            return "RETURN_HOME", None, f"Hiker found; landing at base to tell drone(s) {unaware} when they come back to swap batteries."
         if state["current_action"] == "GO_TO_RENDEZVOUS" and ev not in ("ARRIVED",):
             return _keep(state, f"Waiting at the rendezvous to tell drone(s) {unaware} about the hiker.")
         if ev == "ARRIVED" and state["current_action"] == "GO_TO_TEAMMATE":
@@ -147,6 +156,22 @@ def decide_default(state):
         return ("SEARCH_LAST_SIGNAL", None,
                 f"Fresh battery; {int(est['probability_left'] * 100)}% of the estimate around "
                 f"{tuple(est['center'])} is still unchecked.")
+    if ev == "RELAUNCHED" and state.get("resume"):
+        # Back from a battery swap: go back to exactly what I was doing, unless it's done
+        # or (as far as I know) a teammate has taken it over meanwhile.
+        r = state["resume"]
+        left_at = tuple(r["pos"])
+        if r["action"] == "SEARCH_SECTION":
+            s = r["arg"]
+            now, _ = _claims(state)
+            taken = s in now and now[s] != me
+            if state["sector_progress"][s] < 1 and not taken:
+                return ("SEARCH_SECTION", s,
+                        f"Fresh battery; resuming sector {s} where I left off at {left_at} "
+                        f"({int(state['sector_progress'][s] * 100)}% searched).")
+        if r["action"] == "FOLLOW_SIGNAL" and state["best_signal"]:
+            return ("FOLLOW_SIGNAL", None,
+                    f"Fresh battery; going back to the beacon signal I was following near {left_at}.")
 
     if ev == "RENDEZVOUS_DUE":
         nr = state["next_rendezvous_tick"]

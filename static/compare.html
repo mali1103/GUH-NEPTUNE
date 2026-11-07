@@ -46,7 +46,7 @@
   .stat .v { font-size: 18px; font-weight: 700; }
   .stat .k { color: var(--muted); font-size: 11px; }
   .bats { margin-top: 8px; display: grid; gap: 4px; }
-  .bat { display: grid; grid-template-columns: 26px 1fr 120px; align-items: center; gap: 8px; font-size: 12px; }
+  .bat { display: grid; grid-template-columns: 26px 1fr 170px; align-items: center; gap: 8px; font-size: 12px; }
   .bat .id { font-weight: 700; }
   .bat .track { height: 10px; background: #2a3646; border-radius: 5px; overflow: hidden; position: relative; }
   .bat .fill { height: 100%; border-radius: 5px; transition: width .2s; }
@@ -63,7 +63,7 @@
 <body>
 <header>
   <h1>🚁 Three teams, one mountain</h1>
-  <span style="color:var(--muted)">same map, same failures at the same tick</span>
+  <span style="color:var(--muted)">same map, same failures at the same moment · 1 tick = 10 s, 1 cell = 50 m, 40-min batteries</span>
   <a href="/">← single run with full detail</a>
   <span id="tick">-</span>
 </header>
@@ -226,38 +226,45 @@ function buildColumns() {
       <div class="log" id="log${i}"></div>
     </div>`).join("");
 }
+
+// ---- real-world units: 1 tick = 10 s, 1 cell = 50 m (sent by the server)
+const TS = () => (W && W.tick_seconds) || 10;
+const mins = (t) => (t == null ? "-" : `${Math.round((t * TS()) / 60)} min`);
+const clock = (t) => { const s = Math.round(t * TS()), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return h ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m ${String(s % 60).padStart(2, "0")}s`; };
+const battMins = (b) => (W ? Math.max(0, Math.round((b * W.battery_ticks * TS()) / 60)) : 0);
 const esc = (s) => String(s ?? "").replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
 
 function render() {
   const any = S.sims[0];
-  $("tick").textContent = `tick ${Math.max(...S.sims.map((s) => s.tick))}${S.done ? " · all finished" : ""}`;
+  $("tick").textContent = `${clock(Math.max(...S.sims.map((s) => s.tick)))} into the search${S.done ? " · all finished" : ""}`;
   $("play").textContent = S.running ? "⏸ Pause" : "▶ Start";
   $("comms").textContent = any.comms_enabled ? "📡 Comms ON" : "📵 Comms OFF";
   $("comms").classList.toggle("off", !any.comms_enabled);
   S.sims.forEach((s, i) => {
     draw($(`cv${i}`), s);
     const m = s.metrics, b = $(`badge${i}`);
-    if (m.found_tick) { b.textContent = `FOUND at tick ${m.found_tick}`; b.className = "badge found"; }
-    else if (s.status === "failed") { b.textContent = `not found (gave up at ${s.tick})`; b.className = "badge failed"; }
-    else { b.textContent = s.status === "ready" ? "ready" : `searching · tick ${s.tick}`; b.className = "badge"; }
+    if (m.found_tick) { b.textContent = `FOUND after ${mins(m.found_tick)}`; b.className = "badge found"; }
+    else if (s.status === "failed") { b.textContent = `not found (gave up after ${mins(s.tick)})`; b.className = "badge failed"; }
+    else { b.textContent = s.status === "ready" ? "ready" : `searching · ${clock(s.tick)}`; b.className = "badge"; }
     $(`first${i}`).hidden = S.first !== i;
     $(`col${i}`).classList.toggle("first", S.first === i);
     const st = (k, v) => `<div class="stat"><div class="v">${v}</div><div class="k">${k}</div></div>`;
     const alive = s.drones.filter((d) => d.alive).length;
     $(`stats${i}`).innerHTML =
-      st("time to find", m.found_tick ?? "-") + st("all drones know", m.all_know_tick ?? "-") +
+      st("time to find", mins(m.found_tick)) + st("all drones know", mins(m.all_know_tick)) +
       st("drones alive", `${alive}/3`) + st("searched", Math.round(m.coverage * 100) + "%") +
       st("searched twice", Math.round(m.duplicated * 100) + "%") + st("messages lost", `${m.msgs_dropped}/${m.msgs_sent}`);
     $(`bats${i}`).innerHTML = s.drones.map((d) => {
       const p = Math.round(d.battery * 100);
       const col = !d.alive ? "#555" : d.battery > 0.5 ? "#51cf66" : d.battery > 0.25 ? "#fab219" : "#ff6b6b";
-      const state = !d.alive ? (d.battery <= 0 ? "ran flat" : "lost") : d.recharging != null ? `swapping battery (${d.recharging})`
+      const state = !d.alive ? (d.battery <= 0 ? "ran flat" : "lost") : d.recharging != null ? `swapping battery (${Math.ceil((d.recharging * TS()) / 60)} min)`
         : d.landed ? "landed" : d.action === "RETURN_HOME" ? "heading home" : "flying";
       const swaps = d.swaps ? ` · ${d.swaps} swap${d.swaps > 1 ? "s" : ""}` : "";
       return `<div class="bat"><span class="id" style="color:${d.color}">D${d.id}</span>
         <div class="track" title="lowest so far: ${Math.round(d.min_battery * 100)}%"><div class="fill" style="width:${p}%;background:${col}"></div>
           <div class="low" style="left:${Math.round(d.min_battery * 100)}%"></div></div>
-        <span class="txt"><b>${p}%</b> ${state}${swaps}</span></div>`;
+        <span class="txt"><b>${p}%</b> ~${battMins(d.battery)} min · ${state}${swaps}</span></div>`;
     }).join("");
     $(`log${i}`).innerHTML = s.log.slice().reverse().map((e) =>
       `<div>[${e.tick}] <b style="color:${typeof e.drone === "number" ? COLORS[e.drone] : "#adb5bd"}">${typeof e.drone === "number" ? "D" + e.drone : "Hub"}</b> ${esc(e.action)}${e.arg != null ? " " + esc(e.arg) : ""}: ${esc(e.reason)}</div>`).join("");

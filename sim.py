@@ -16,7 +16,8 @@ import agent
 from baseline import Hub
 from drone import COLORS, Drone
 from world import (
-    COMMS_RANGE, GRID_SIZE, MAX_TICKS, NUM_DRONES, RENDEZVOUS_POINT,
+    BATTERY_RESERVE_TICKS, BATTERY_TICKS, CELL_METERS, COMMS_RANGE, GRID_SIZE, MAX_TICKS,
+    NUM_DRONES, RENDEZVOUS_POINT, TICK_SECONDS,
     SECTOR_LABELS, SECTOR_SIZE, World, cheb, dist,
 )
 
@@ -171,6 +172,8 @@ class Sim:
 
     def _baseline_event(self, d, t, event, arg):
         if event == "LOW_BATTERY":
+            if d.action == "SEARCH_SECTION":
+                d.last_sector = d.arg  # the hub sends it back here after the battery swap
             d.needs_orders = False  # don't wait for (or accept) hub orders any more
             d.apply("RETURN_HOME", None, "Low battery: returning home (autonomous safety).", "drone", t, event)
             self.add_log(t, d.id, "drone", event, "RETURN_HOME", None, d.reason)
@@ -264,6 +267,8 @@ class Sim:
     def world_json(self):
         return {"size": GRID_SIZE, "heights": [v for row in self.world.height for v in row],
                 "sector_size": SECTOR_SIZE, "comms_range": COMMS_RANGE,
+                "tick_seconds": TICK_SECONDS, "cell_m": CELL_METERS,
+                "battery_ticks": BATTERY_TICKS, "reserve_ticks": BATTERY_RESERVE_TICKS,
                 "base": self.world.base, "start": self.start, "beacon": self.beacon,
                 "plan": {d.id: d.my_sectors for d in self.drones},
                 "rendezvous": RENDEZVOUS_POINT, "sectors": list(SECTOR_LABELS), "seed": self.seed,

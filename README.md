@@ -53,10 +53,20 @@ It checks that: with the radio off, each drone knows only what its own sensors s
 | Keep working when comms fail | Lost drones keep searching using a pre-agreed priority order, then sync at the next encounter or rendezvous |
 | No central hub | No drone or base station gives orders. Every decision is made locally from the drone's own knowledge |
 
-### Headline results (10 maps, from `bench_results.json`)
+### Headline results (10 maps, realistic 40-minute batteries, from `bench_results.json`)
 
-| Setup (radio working) | Found | Avg time to find | All drones know | Searched twice |
-|---|---|---|---|---|
+| Setup (radio working) | Found | Avg time to find | All drones know | Searched twice | Drone flight time |
+|---|---|---|---|---|---|
+| No coordination (each drone alone) | 10/10 | 56 min | 173 min | 70% | 329 min |
+| Pre-launch plan only (radio dead) | 10/10 | 42 min | 145 min | 48% | 282 min |
+| **Plan + radio sharing (ours)** | **10/10** | **39 min** | **46 min** | **23%** | **135 min** |
+| Central hub | 4/10 | 36 min (when found) | 51 min | 31% | 413 min |
+
+- **Common goal:** the pre-launch plan alone makes the team 25% faster than drones searching alone; the radio then halves double-searching (48% → 23%) and gets the news to every drone 3.2× sooner.
+- **Resilience:** ours finds the hiker on every map at 0, 25, 50, 75, 90 and 100% packet loss, through a total blackout (41 min vs 56 alone), with a drone killed (63 min vs 78), and with the beacon dying (53 min vs 83) or off (102 min vs 135). The central hub falls to 0/10 in a blackout or with no radio.
+- **Battery / energy:** ours used 135 minutes of drone flight time in total vs 329 with no coordination and 413 for the central hub (its drones hover waiting for orders). Ours needed ~2 battery swaps per search vs ~10 alone and ~13 for the hub. No drone ran flat in any mode or scenario (`python bench.py --show` prints battery use per scenario).
+
+---|---|---|---|---|
 | No coordination (each drone alone) | 10/10 | 188 | 602 | 70% |
 | Pre-launch plan only (radio dead) | 10/10 | 156 | 531 | 49% |
 | **Plan + radio sharing (ours)** | **10/10** | **149** | **173** | **24%** |
@@ -86,6 +96,42 @@ It checks that: with the radio off, each drone knows only what its own sensors s
 
 ---
 
+## Real-world scale
+
+Everything is calibrated to one consistent scale, so times, distances and batteries are realistic:
+
+| Sim | Real world | Basis |
+|---|---|---|
+| 1 tick | **10 seconds** | |
+| 1 cell | **50 m** | |
+| map, 63 × 63 cells | **3.15 km × 3.15 km** (~10 km²) | a sensible search area for 3 drones |
+| 1 cell per tick | **5 m/s** | typical search speed |
+| camera strip, 3 cells | 150 m | roughly a thermal camera's footprint from ~100 m up (UK limit 120 m) |
+| beacon heard from ~4 cells | ~200 m | between an avalanche transceiver (tens of m) and phone/locator signals (up to km) |
+| radio range, 20 cells | 1 km | conservative; real links reach several km with line of sight, and terrain blocks them |
+| **battery, 240 ticks** | **40 minutes** | a search quadcopter (e.g. DJI Matrice 30T ~41 min) |
+| climbing | extra battery per metre climbed | terrain spans 600 m; climbing at 3 m/s |
+| return-home trigger | the real cost of the flight home (climbs included) + a **15% reserve** | pilots keep a margin for wind and cold |
+| battery swap | ~4 minutes at base | |
+
+The UI shows minutes and "minutes of flight left" rather than ticks.
+
+### Low battery: go home, swap, resume
+
+When the battery only covers the trip home plus the reserve, the drone **remembers what it was doing and where** (sector, lawnmower row, position), flies home, swaps the battery (~4 min) and relaunches **with its map intact**, then goes back to exactly that task, unless it's finished or (as far as it knows) a teammate took it over meanwhile. Log line: *"Fresh battery; resuming sector E where I left off at (22, 32) (69% searched)."* The other modes get the same: the central hub sends a relaunched drone back to its unfinished sector, and "no coordination" drones resume their own search. Once low battery fires, nothing can redirect the drone except home (safety lock). No drone ran flat in any benchmark run.
+
+### Why there are no scheduled meetups any more
+
+The design originally had all drones fly to a central rendezvous every 25 minutes. With realistic 40-minute batteries that cost more than it gained, measured over 15 maps:
+
+| Ours, 15 maps | Beacon working | Beacon off | Drone 1 killed | 90% packet loss |
+|---|---|---|---|---|
+| Meetup every 25 min | 45 min | 109 min | 57 min | 41 min |
+| Meetup every 50 min | 42 min | 90 min | 55 min | 44 min |
+| **No scheduled meetups** | **33 min** | **90 min** | **45 min** | **33 min** |
+
+All variants found the hiker on 15/15 maps. Drones already come back to base every battery and sync with whoever they meet there or on the way, so meetups are now **off by default** (`RENDEZVOUS_INTERVAL = None`; set a number of ticks to turn them back on). A teammate silent for longer than a battery lasts (`LOST_TIMEOUT`, 50 min) is presumed lost. When the hiker is found, the finder flies to the nearest unaware teammate or back to base, whichever is closer: everyone comes back to base to swap batteries, so they all hear the news there.
+
 ## The world
 
 - **Grid:** 63 × 63 cells, each with a terrain **height** from 0.0 (valley floor) to 1.0 (highest peak).
@@ -98,8 +144,8 @@ It checks that: with the radio off, each drone knows only what its own sensors s
 - **Beacon signal:** `strength = max(0, 1 - distance / BEACON_RANGE)`, halved if terrain blocks line of sight to the hiker, plus Gaussian noise. Readings below `SIGNAL_THRESHOLD` count as nothing. `SIGNAL_DETECTED` needs two readings within 5 ticks (debounces noise spikes), and `FOLLOW_SIGNAL` searches around the strength-weighted centre of recent readings, not a single one.
 - **Found:** a drone finds the hiker when its camera sees it: within `FIND_RADIUS` cells (Chebyshev distance).
 - **Movement:** 1 cell per tick, 8 directions.
-- **Time:** 1 tick = 1 simulated minute. Rendezvous happen at every multiple of `RENDEZVOUS_INTERVAL`.
-- **Battery:** drains `BATTERY_DRAIN` per tick (flying or hovering). `LOW_BATTERY` fires when the battery only covers the trip home plus `BATTERY_RESERVE_TICKS`. A drone that came home for battery while the hiker is still missing **swaps its battery** (`RECHARGE_TICKS`) and relaunches with its map intact.
+- **Time:** 1 tick = 10 seconds (see *Real-world scale*). Scheduled rendezvous are off by default.
+- **Battery:** 40 minutes of level flight; climbing costs extra. `LOW_BATTERY` fires when the battery only covers the real flight home (climbs included) plus a 15% reserve. The drone then swaps its battery at base and resumes where it left off (see above).
 
 ### How a drone searches (two sensors)
 
@@ -147,17 +193,21 @@ BEACON_NOISE = 0.05
 SIGNAL_THRESHOLD = 0.15
 BEACON_CLEAR_RADIUS = 3   # search lane half-width: a pass this close would have heard the beacon
 FIND_RADIUS = 1
-RENDEZVOUS_INTERVAL = 150 # ticks (fewer, longer gaps measured better than 90/120 on this map)
+RENDEZVOUS_INTERVAL = None  # scheduled meetups off (measured: they cost more than they gain with 40-min batteries)
 RENDEZVOUS_POINT = (31, 31)
 RENDEZVOUS_SKIP_IF_HEARD = 15
-LOST_TIMEOUT = 180        # ticks of silence before a teammate is presumed lost (> interval, so rendezvous detects it first)
+LOST_TIMEOUT = 300        # 50 min of silence (longer than a battery lasts) = presumed lost
 MISSED_MEETUP_WAIT = 5    # ticks to wait at the rendezvous for a missing drone
 START_OPTIONS = ["random", "S", "N", "W", "E", "NW", "NE", "SW", "SE"]  # launch point choices
-BATTERY_DRAIN = 0.0014    # per tick, i.e. ~700 ticks of flight
-BATTERY_RESERVE_TICKS = 20
+TICK_SECONDS = 10         # 1 tick = 10 s
+CELL_METERS = 50          # 1 cell = 50 m
+BATTERY_MINUTES = 40      # -> BATTERY_TICKS = 240, BATTERY_DRAIN = 1/240 per tick
+BATTERY_RESERVE_TICKS = 36  # land with ~15% left
+TERRAIN_RELIEF_M = 600    # height 0..1 = 0..600 m
+CLIMB_RATE_MS = 3         # climbing costs extra battery
 SIGNAL_FOLLOW_LIMIT = 40  # ticks before giving up on a signal
 RELAY_HOVER_TICKS = 8     # how long CLIMB_TO_RELAY waits on high ground
-RECHARGE_TICKS = 25       # battery swap at base before relaunching
+RECHARGE_TICKS = 24       # battery swap at base (~4 min)
 BEACON_MODES = ["on", "off", "dies"]
 BEACON_DIES_AFTER = 2     # 'dies' mode: ticks after first contact
 BEACON_MODEL_NOISE = 0.07 # noise the drones assume when estimating
@@ -297,7 +347,7 @@ Each drone runs its own copy of `decide`, called only on events. It is **rules-b
 2. **Priority order:** own sectors first, then other drones' sectors in reverse order. Minimal overlap, zero comms needed.
 3. **Assume teammates follow their plan:** a sector a live teammate is searching, or will reach next in its own plan, counts as claimed.
 4. **Gossip on contact:** whenever two drones can talk, they merge everything they know.
-5. **Scheduled rendezvous:** at every multiple of `RENDEZVOUS_INTERVAL`, drones fly to `RENDEZVOUS_POINT`. The meetup is complete as soon as everyone presumed alive is in radio contact (no need to be on the exact cell). A drone **skips** the trip if it is already in contact with every live teammate.
+5. **Scheduled rendezvous (optional, off by default; see *Why there are no scheduled meetups*):** at every multiple of `RENDEZVOUS_INTERVAL`, drones fly to `RENDEZVOUS_POINT`. The meetup is complete as soon as everyone presumed alive is in radio contact (no need to be on the exact cell). A drone **skips** the trip if it is already in contact with every live teammate.
 6. **Deterministic re-split:** at `MEETUP_COMPLETE` every drone has the same knowledge, so each one runs the same assignment (drones in id order, each keeps its unfinished sector, others take the best unclaimed sector by their own priority order). No negotiation needed.
 7. **Missed meetup:** a drone not in contact within `MISSED_MEETUP_WAIT` ticks is marked `missed_at`, presumed lost, and its unsearched sectors become unclaimed. If it shows up again in gossip later, its newer `last_heard` brings it back.
 8. **Lost-contact timeout:** a teammate silent for `LOST_TIMEOUT` ticks is presumed lost.
@@ -387,6 +437,7 @@ Default seed **23** is typical of the benchmark averages: ours finds the hiker a
 - A lone drone following a noisy signal can head the wrong way for a while.
 - Without a beacon the search is slow: about 2.4× longer on average, because the camera sees 3-wide lanes instead of 7, and the team only realises the beacon is off after a full beacon sweep. If rescuers already know the phone is dead, starting straight in camera mode would save that first sweep.
 - The estimate assumes the hiker didn't move after the beacon died.
-- Rendezvous trips cost search time. Too frequent is wasteful, too rare means stale maps (mitigated by skipping when already in contact).
+- Without scheduled meetups, a dead drone is only presumed lost after `LOST_TIMEOUT` (50 min) of silence, so its sectors are taken over later.
+- No wind or cold (both shorten real flight time), and the camera never misses a hiker it flies over.
 - A drone that is merely out of range at meetup time is presumed lost until it is heard again; its sectors may be searched twice.
 - The signal and terrain model is simplified: line of sight over a heightmap, a hard radio range, and no battery cost for climbing.
