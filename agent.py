@@ -12,8 +12,8 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from world import (GRID_SIZE, OWN_SECTORS, RENDEZVOUS_SKIP_IF_HEARD, SECTOR_LABELS, SECTOR_SIZE,
-                   cheb, priority_order, sector_center)
+from world import (GRID_SIZE, RENDEZVOUS_SKIP_IF_HEARD, SECTOR_LABELS, SECTOR_SIZE, cheb,
+                   sector_center)
 
 ACTIONS = ["SEARCH_SECTION", "FOLLOW_SIGNAL", "GO_TO_RENDEZVOUS", "GO_TO_TEAMMATE",
            "CLIMB_TO_RELAY", "RETURN_HOME"]
@@ -32,7 +32,7 @@ def _claims(state, exclude=()):
         tgt = t["current_target"]
         if t["current_action"] == "SEARCH_SECTION" and tgt in prog and prog[tgt] < 1:
             now.setdefault(tgt, j)
-        own = OWN_SECTORS[j]
+        own = state["plans"][j]["own"]
         start = own.index(tgt) + 1 if tgt in own else 0
         for s in own[start:]:
             if prog[s] < 1:
@@ -42,7 +42,7 @@ def _claims(state, exclude=()):
 
 def _lost_owner(state, s):
     for j, t in state["teammates"].items():
-        if s in OWN_SECTORS[j] and not t["alive_presumed"]:
+        if s in state["plans"][j]["own"] and not t["alive_presumed"]:
             return j
     return None
 
@@ -96,7 +96,7 @@ def _agreed_split(state):
     absent_now, absent_plan = _claims(state, exclude=group)
     taken = {}
     for j in group:
-        order = priority_order(j)
+        order = state["plans"][j]["priority"]
         options = [s for s in SECTOR_LABELS if prog[s] < 1 and s not in taken]
         if not options:
             break
@@ -238,7 +238,7 @@ def decide_rules(state):
 
 
 # ====================================================================== LLM
-SYSTEM_PROMPT = f"""You are the onboard decision agent of one search-and-rescue drone in a team of three, searching a {GRID_SIZE}x{GRID_SIZE} mountain grid (9 sectors A-I, {SECTOR_SIZE}x{SECTOR_SIZE} each; A B C is the top row, G H I the bottom row next to base) for a lost hiker carrying a radio beacon. Drones sweep in wide lanes listening for the beacon, then close in with the camera when they hear it.
+SYSTEM_PROMPT = f"""You are the onboard decision agent of one search-and-rescue drone in a team of three, searching a {GRID_SIZE}x{GRID_SIZE} mountain grid (9 sectors A-I, {SECTOR_SIZE}x{SECTOR_SIZE} each; A B C is the top row, D E F the middle, G H I the bottom row; x grows to the right, y grows downwards). The team launched from a base on the edge of the map (`base_position`); each drone owns a wedge of three sectors fanning out from it for a lost hiker carrying a radio beacon. Drones sweep in wide lanes listening for the beacon, then close in with the camera when they hear it.
 
 There is no central controller. You only know what your own drone has sensed or heard from teammates over a radio that drops out (range limit, mountains between drones block line of sight, packet loss). Drones fly just above the terrain, so a drone on high ground can talk over the hills. Teammates you can't hear are assumed to be following their last known plan until they are presumed lost.
 
@@ -288,6 +288,7 @@ def llm_payload(state, cands, default, memory):
         "event": state["event"],
         "event_arg": state["event_arg"],
         "position": list(state["position"]),
+        "base_position": list(state["base_position"]),
         "battery_pct": int(state["battery"] * 100),
         "terrain_height_pct": int(state["height"] * 100),
         "doing_now": {"action": state["current_action"], "arg": state["current_target"]},

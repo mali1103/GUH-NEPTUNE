@@ -9,30 +9,29 @@ import random
 from functools import lru_cache
 
 # ---------------------------------------------------------------- constants
-GRID_SIZE = 42
-SECTOR_SIZE = 14
+GRID_SIZE = 63
+SECTOR_SIZE = 21
 SECTOR_LABELS = "ABCDEFGHI"
 NUM_DRONES = 3
 SENSOR_RADIUS = 1         # camera: close search when homing in on a signal
-COMMS_RANGE = 15          # cells, drone to drone
-BASE_COMMS_RANGE = 31     # base station mast (baseline mode only)
+COMMS_RANGE = 20          # cells, drone to drone
+BASE_COMMS_RANGE = 46     # base station mast (baseline mode only)
 PACKET_LOSS = 0.0         # 0.0 - 1.0, controlled by a slider
 BEACON_RANGE = 5
 BEACON_NOISE = 0.05
 SIGNAL_THRESHOLD = 0.15
 BEACON_CLEAR_RADIUS = 3   # a pass within this distance would have heard the beacon (even through a hill)
 FIND_RADIUS = 1
-RENDEZVOUS_INTERVAL = 60  # ticks
-RENDEZVOUS_POINT = (21, 21)
+RENDEZVOUS_INTERVAL = 150 # ticks (measured: fewer, longer gaps beat 90/120 on this map)
+RENDEZVOUS_POINT = (31, 31)
 RENDEZVOUS_SKIP_IF_HEARD = 15  # skip the trip if every live teammate was heard this recently
-LOST_TIMEOUT = 80         # ticks of silence before a teammate is presumed lost (> interval)
+LOST_TIMEOUT = 180        # ticks of silence before a teammate is presumed lost (> interval)
 MISSED_MEETUP_WAIT = 5    # ticks to wait at the rendezvous for a missing drone
-BASE_POSITION = (21, 41)
-BATTERY_DRAIN = 0.002     # per tick -> 500 ticks of flight
-BATTERY_RESERVE_TICKS = 15
+BATTERY_DRAIN = 0.0014    # per tick -> ~700 ticks of flight
+BATTERY_RESERVE_TICKS = 20
 SIGNAL_FOLLOW_LIMIT = 40
 RELAY_HOVER_TICKS = 8
-MAX_TICKS = 1200
+MAX_TICKS = 2000
 
 # Terrain: heights are 0.0 (valley floor) .. 1.0 (highest peak).
 MAP_SCALE = GRID_SIZE / 30  # terrain features scale with the map
@@ -40,10 +39,11 @@ FLIGHT_CLEARANCE = 0.04   # drones hug the terrain at this height above ground
 MAST_HEIGHT = 0.15        # base station mast (baseline mode)
 NUM_PEAKS = (8, 12)       # round mountains
 NUM_RIDGES = (3, 5)       # long ridgelines: the main radio walls
-RELAY_SEARCH_RADIUS = 10  # CLIMB_TO_RELAY looks this far for high ground
+RELAY_SEARCH_RADIUS = 14  # CLIMB_TO_RELAY looks this far for high ground
 
-# Pre-launch plan: each drone owns one column, searched bottom (near base) to top.
-OWN_SECTORS = {0: ["G", "D", "A"], 1: ["H", "E", "B"], 2: ["I", "F", "C"]}
+# Launch point: anywhere on the map edge (random per seed, or pick one in the UI).
+# The pre-launch sector plan is derived from it: see make_plan().
+START_OPTIONS = ["random", "S", "N", "W", "E", "NW", "NE", "SW", "SE"]
 
 
 # ---------------------------------------------------------------- geometry
@@ -142,31 +142,71 @@ def sector_rows(label):
         r += 2 * R + 1
 
 
-def priority_order(drone_id):
-    """Own sectors first, then the others' sectors in reverse, nearest drone first, interleaved."""
-    own = OWN_SECTORS[drone_id]
-    others = sorted((j for j in OWN_SECTORS if j != drone_id), key=lambda j: (abs(j - drone_id), j))
-    rev = [list(reversed(OWN_SECTORS[j])) for j in others]
-    order = list(own)
-    for k in range(len(own)):
-        for r in rev:
-            order.append(r[k])
-    return order
+def perimeter_cells():
+    g = GRID_SIZE - 1
+    top = [(x, 0) for x in range(g)]
+    right = [(g, y) for y in range(g)]
+    bottom = [(x, g) for x in range(g, 0, -1)]
+    left = [(0, y) for y in range(g, 0, -1)]
+    return top + right + bottom + left
+
+
+def launch_point(start, rng_cell):
+    """Named launch points, or 'random' = the seed's random cell on the map edge."""
+    g = GRID_SIZE - 1
+    m = g // 2
+    named = {"S": (m, g), "N": (m, 0), "W": (0, m), "E": (g, m),
+             "NW": (0, 0), "NE": (g, 0), "SW": (0, g), "SE": (g, g)}
+    return named.get(start, rng_cell)
+
+
+def make_plan(base):
+    """Pre-launch plan for any launch point on the edge.
+
+    Sectors are sorted by bearing from base (relative to 'into the map') and cut into
+    three wedges fanning out from base; each drone owns one wedge, nearest sector first.
+    Priority order: own sectors, then the other drones' sectors in reverse (furthest first),
+    nearest drone first, interleaved. Everyone can compute this before launch: zero comms.
+    """
+    c = (GRID_SIZE - 1) / 2
+    nx, ny = c - base[0], c - base[1]           # direction into the map
+
+    def bearing(s):
+        vx, vy = sector_center(s)[0] - base[0], sector_center(s)[1] - base[1]
+        return round(math.atan2(nx * vy - ny * vx, nx * vx + ny * vy), 6)
+
+    order = sorted(SECTOR_LABELS, key=lambda s: (bearing(s), dist(base, sector_center(s)), s))
+    k = len(SECTOR_LABELS) // NUM_DRONES
+    own = {i: sorted(order[i * k:(i + 1) * k], key=lambda s: (dist(base, sector_center(s)), s))
+           for i in range(NUM_DRONES)}
+    prio = {}
+    for i in own:
+        others = sorted((j for j in own if j != i), key=lambda j: (abs(j - i), j))
+        rev = [list(reversed(own[j])) for j in others]
+        p = list(own[i])
+        for n in range(k):
+            for r in rev:
+                p.append(r[n])
+        prio[i] = p
+    return own, prio
 
 
 # ---------------------------------------------------------------- world
 class World:
-    def __init__(self, seed=42):
+    def __init__(self, seed=42, start="random"):
         self.seed = seed
         rng = random.Random(seed)
-        self.height = self._make_terrain(rng)      # height[y][x] in 0..1
+        edge = perimeter_cells()[rng.randrange(len(perimeter_cells()))]
+        self.base = launch_point(start, edge)      # launch point, always on the map edge
+        self.own_sectors, self.priority = make_plan(self.base)
+        self.height = self._make_terrain(rng, self.base)  # height[y][x] in 0..1
         self.hiker = self._place_hiker(rng)
         self.noise_rng = random.Random(seed * 7919 + 1)
         self._relay_cache = {}
 
     # ------------------------------------------------------------ terrain
     @staticmethod
-    def _make_terrain(rng):
+    def _make_terrain(rng, base):
         g, s = GRID_SIZE, MAP_SCALE
         h = [[0.0] * g for _ in range(g)]
 
@@ -179,15 +219,15 @@ class World:
                     h[y][x] += amp * math.exp(-0.5 * ((u / sx) ** 2 + (v / sy) ** 2))
 
         for _ in range(rng.randint(*NUM_PEAKS)):          # round mountains
-            blob(rng.uniform(0, g), rng.uniform(0, g - 6 * s), rng.uniform(0.5, 1.0),
+            blob(rng.uniform(0, g), rng.uniform(0, g), rng.uniform(0.5, 1.0),
                  rng.uniform(2.5, 5) * s, rng.uniform(2.5, 5) * s, 0)
-        for _ in range(rng.randint(*NUM_RIDGES)):         # long ridgelines
-            blob(rng.uniform(4 * s, g - 4 * s), rng.uniform(3 * s, g - 8 * s), rng.uniform(0.7, 1.0),
-                 rng.uniform(6, 11) * s, rng.uniform(1.3, 2.2) * s, rng.uniform(-0.6, 0.6))
+        for _ in range(rng.randint(*NUM_RIDGES)):         # long ridgelines, any orientation
+            blob(rng.uniform(4 * s, g - 4 * s), rng.uniform(4 * s, g - 4 * s), rng.uniform(0.7, 1.0),
+                 rng.uniform(6, 11) * s, rng.uniform(1.3, 2.2) * s, rng.uniform(0, math.pi))
         for _ in range(int(25 * s * s)):                  # rough texture
             blob(rng.uniform(0, g), rng.uniform(0, g), rng.uniform(0.05, 0.15),
                  rng.uniform(1, 2), rng.uniform(1, 2), 0)
-        blob(BASE_POSITION[0], BASE_POSITION[1], -0.8, 5 * s, 4 * s, 0)  # base sits in a valley
+        blob(base[0], base[1], -0.8, 5 * s, 5 * s, 0)    # base sits in a valley
 
         lo = min(min(r) for r in h)
         hi = max(max(r) for r in h)
@@ -196,7 +236,7 @@ class World:
     def _place_hiker(self, rng):
         while True:
             c = (rng.randrange(GRID_SIZE), rng.randrange(GRID_SIZE))
-            if self.h(c) < 0.85 and cheb(c, BASE_POSITION) >= GRID_SIZE // 3:
+            if self.h(c) < 0.85 and cheb(c, self.base) >= GRID_SIZE // 3:
                 return c
 
     def h(self, c):

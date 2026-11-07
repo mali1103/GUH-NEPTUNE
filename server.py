@@ -28,7 +28,7 @@ from fastapi.responses import FileResponse  # noqa: E402
 
 from sim import Sim, benchmark  # noqa: E402
 
-sim = Sim(seed=18, mode="ours")  # demo seed: hiker in sector B, drone 1's last sector
+sim = Sim(seed=2, mode="ours", start="random")  # demo: base top-left, hiker in drone 1's far sector  # demo seed: hiker in sector B, drone 1's last sector
 STATIC = Path(__file__).parent / "static"
 
 
@@ -82,7 +82,7 @@ def step():
 
 @app.post("/control/reset")
 def reset(body: dict = Body(default={})):
-    sim.reset(body.get("seed"), body.get("mode"))
+    sim.reset(body.get("seed"), body.get("mode"), body.get("start"))
     return {"ok": True}
 
 

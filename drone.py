@@ -7,10 +7,10 @@ the pre-loaded terrain map.
 from collections import deque
 
 from world import (
-    BASE_POSITION, BATTERY_DRAIN, BATTERY_RESERVE_TICKS, BEACON_RANGE, LOST_TIMEOUT,
-    MISSED_MEETUP_WAIT, OWN_SECTORS, RELAY_HOVER_TICKS, RENDEZVOUS_INTERVAL,
+    BATTERY_DRAIN, BATTERY_RESERVE_TICKS, BEACON_RANGE, LOST_TIMEOUT,
+    MISSED_MEETUP_WAIT, RELAY_HOVER_TICKS, RENDEZVOUS_INTERVAL,
     RENDEZVOUS_POINT, SECTOR_LABELS, SECTOR_SIZE, SENSOR_RADIUS, SIGNAL_FOLLOW_LIMIT,
-    BEACON_CLEAR_RADIUS, cells_in_disk, cells_in_radius, cheb, in_bounds, priority_order, sector_bounds, sector_of,
+    BEACON_CLEAR_RADIUS, cells_in_disk, cells_in_radius, cheb, in_bounds, sector_bounds, sector_of,
     sector_rows, step_toward,
 )
 
@@ -22,13 +22,14 @@ class Drone:
         self.id = drone_id
         self.world = world
         self.baseline = baseline
-        self.pos = BASE_POSITION
+        self.base = world.base
+        self.pos = world.base
         self.battery = 1.0
         self.alive = True
         self.landed = False
 
-        self.my_sectors = list(OWN_SECTORS[drone_id])
-        self.priority = priority_order(drone_id)
+        self.my_sectors = list(world.own_sectors[drone_id])
+        self.priority = list(world.priority[drone_id])
         self.action = "HOVER" if baseline else "SEARCH_SECTION"
         self.arg = None if baseline else self.my_sectors[0]
         self.reason = "Waiting for the hub." if baseline else "Pre-launch plan: my first sector."
@@ -44,9 +45,9 @@ class Drone:
         self.hiker_found = False
         self.hiker_position = None
         self.teammates = {
-            j: {"position": BASE_POSITION, "last_heard": 0, "current_action": "SEARCH_SECTION",
-                "current_target": OWN_SECTORS[j][0], "hiker_found": False, "missed_at": -1}
-            for j in OWN_SECTORS if j != drone_id
+            j: {"position": world.base, "last_heard": 0, "current_action": "SEARCH_SECTION",
+                "current_target": world.own_sectors[j][0], "hiker_found": False, "missed_at": -1}
+            for j in world.own_sectors if j != drone_id
         }
         self.in_contact = set()
 
@@ -189,7 +190,7 @@ class Drone:
                 return self.pos, None
             return self.relay_target, None
         if a == "RETURN_HOME":
-            return BASE_POSITION, None
+            return self.base, None
         return self.pos, None  # HOVER
 
     def move_and_sense(self, tick):
@@ -210,7 +211,7 @@ class Drone:
             self.alive = False
             self.reason = "Battery depleted."
             return
-        if self.action == "RETURN_HOME" and self.pos == BASE_POSITION:
+        if self.action == "RETURN_HOME" and self.pos == self.base:
             self.landed = True
         cleared = cells_in_disk(self.pos, BEACON_CLEAR_RADIUS)  # would have heard the beacon here
         self.add_cells(cleared)
@@ -242,7 +243,7 @@ class Drone:
 
         if self.action == "RETURN_HOME":
             return None
-        need_home = (cheb(self.pos, BASE_POSITION) + BATTERY_RESERVE_TICKS) * BATTERY_DRAIN
+        need_home = (cheb(self.pos, self.base) + BATTERY_RESERVE_TICKS) * BATTERY_DRAIN
         if not self.low_batt_done and self.battery <= need_home:
             self.low_batt_done = True
             return ("LOW_BATTERY", None)
@@ -322,7 +323,9 @@ class Drone:
             "height": self.world.h(self.pos),
             "relay_point": self.world.relay_point(self.pos),
             "relay_height": self.world.h(self.world.relay_point(self.pos)),
-            "base_position": BASE_POSITION,
+            "base_position": self.base,
+            "plans": {j: {"own": self.world.own_sectors[j], "priority": self.world.priority[j]}
+                      for j in self.world.own_sectors},
             "event": event,
             "event_arg": event_arg,
         }

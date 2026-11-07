@@ -9,7 +9,7 @@ import agent
 from baseline import Hub
 from drone import COLORS, Drone
 from world import (
-    BASE_POSITION, COMMS_RANGE, GRID_SIZE, MAX_TICKS, NUM_DRONES, RENDEZVOUS_POINT,
+    COMMS_RANGE, GRID_SIZE, MAX_TICKS, NUM_DRONES, RENDEZVOUS_POINT,
     SECTOR_LABELS, SECTOR_SIZE, World, dist,
 )
 
@@ -18,7 +18,7 @@ LLM_TIMEOUT_WAIT = 8.0
 
 
 class Sim:
-    def __init__(self, seed=42, mode="ours"):
+    def __init__(self, seed=42, mode="ours", start="random"):
         self.lock = threading.RLock()
         self.tps = 8
         self.running = False
@@ -28,14 +28,16 @@ class Sim:
         self.comms_enabled = True
         self.reveal = False
         self.scenario = {}
+        self.start = start
         self.reset(seed, mode)
 
     # ------------------------------------------------------------ setup
-    def reset(self, seed=None, mode=None):
+    def reset(self, seed=None, mode=None, start=None):
         with self.lock:
             self.seed = self.seed if seed is None else int(seed)
             self.mode = self.mode if mode is None else mode
-            self.world = World(self.seed)
+            self.start = self.start if start is None else start
+            self.world = World(self.seed, self.start)
             self.rng = random.Random(self.seed * 31 + 7)
             base = self.mode == "baseline"
             self.drones = [Drone(i, self.world, baseline=base) for i in range(NUM_DRONES)]
@@ -264,6 +266,7 @@ class Sim:
             llm["available"] = agent.llm_available()
             return {
                 "tick": self.tick, "status": self.status, "running": self.running, "seed": self.seed,
+                "start": self.start,
                 "mode": self.mode, "agent_mode": self.agent_mode, "wait_for_agents": self.wait_for_agents,
                 "tps": self.tps, "packet_loss": self.packet_loss, "comms_enabled": self.comms_enabled,
                 "view": view, "grid": grid, "links": self.links,
@@ -285,14 +288,15 @@ class Sim:
     def world_json(self):
         return {"size": GRID_SIZE, "heights": [v for row in self.world.height for v in row],
                 "sector_size": SECTOR_SIZE, "comms_range": COMMS_RANGE,
-                "base": BASE_POSITION,
+                "base": self.world.base, "start": self.start,
+                "plan": {i: s for i, s in self.world.own_sectors.items()},
                 "rendezvous": RENDEZVOUS_POINT, "sectors": list(SECTOR_LABELS), "seed": self.seed,
                 "mode": self.mode}
 
 
 # ---------------------------------------------------------------- headless
-def run_headless(seed, mode="ours", packet_loss=0.0, scenario=None):
-    sim = Sim(seed, mode)
+def run_headless(seed, mode="ours", packet_loss=0.0, scenario=None, start="random"):
+    sim = Sim(seed, mode, start)
     sim.packet_loss = packet_loss
     sim.scenario = scenario or {}
     while sim.status not in ("complete", "failed"):

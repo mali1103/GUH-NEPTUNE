@@ -100,6 +100,17 @@
         <button id="reset">Reset</button>
       </div>
       <div class="row">
+        <label>Launch from</label>
+        <select id="start">
+          <option value="random">Random point on the edge</option>
+          <option value="S">Bottom wall</option><option value="N">Top wall</option>
+          <option value="W">Left wall</option><option value="E">Right wall</option>
+          <option value="NW">Top-left corner</option><option value="NE">Top-right corner</option>
+          <option value="SW">Bottom-left corner</option><option value="SE">Bottom-right corner</option>
+        </select>
+        <span class="tag" id="plan"></span>
+      </div>
+      <div class="row">
         <label>Speed <input type="range" id="speed" min="1" max="40" value="8"></label><span id="speedv">8/s</span>
         <label>Packet loss <input type="range" id="loss" min="0" max="100" value="0"></label><span id="lossv">0%</span>
       </div>
@@ -191,8 +202,10 @@ function buildTerrain() {
 
 async function loadWorld() {
   W = await (await fetch("/world")).json();
-  worldKey = W.seed + W.mode;
+  worldKey = W.seed + W.mode + W.start;
   buildTerrain();
+  $("plan").textContent = `base at (${W.base}) · plan: ` +
+    Object.entries(W.plan).map(([i, s]) => `drone ${i} → ${s.join("")}`).join(" · ");
 }
 
 function hexA(hex, a) {
@@ -314,7 +327,7 @@ function renderPanels() {
 async function poll() {
   try {
     S = await (await fetch("/state?view=" + $("view").value)).json();
-    if (!W || worldKey !== S.seed + S.mode) await loadWorld();
+    if (!W || worldKey !== S.seed + S.mode + S.start) await loadWorld();
     renderPanels();
   } catch (e) { $("status").textContent = "server offline"; }
   setTimeout(poll, 100);
@@ -323,7 +336,8 @@ function frame() { draw(); requestAnimationFrame(frame); }
 
 $("play").onclick = () => post(S && S.running ? "/control/pause" : "/control/start");
 $("step").onclick = () => post("/control/step");
-$("reset").onclick = async () => { await post("/control/reset", { seed: +$("seed").value, mode: $("mode").value }); await loadWorld(); };
+$("reset").onclick = async () => { await post("/control/reset", { seed: +$("seed").value, mode: $("mode").value, start: $("start").value }); await loadWorld(); };
+$("start").onchange = () => $("reset").click();
 $("speed").oninput = (e) => { $("speedv").textContent = e.target.value + "/s"; post("/control/speed", { ticks_per_second: +e.target.value }); };
 $("loss").oninput = (e) => { $("lossv").textContent = e.target.value + "%"; post("/control/packet_loss", { value: e.target.value / 100 }); };
 $("comms").onclick = () => post("/control/comms", { enabled: !S.comms_enabled });
@@ -342,7 +356,7 @@ $("bench").onclick = async () => {
 
 (async () => {
   const s = await (await fetch("/state")).json();
-  $("seed").value = s.seed; $("mode").value = s.mode; $("agent").value = s.agent_mode;
+  $("seed").value = s.seed; $("mode").value = s.mode; $("agent").value = s.agent_mode; $("start").value = s.start;
   $("wait").checked = s.wait_for_agents; $("speed").value = s.tps; $("speedv").textContent = s.tps + "/s";
   $("loss").value = Math.round(s.packet_loss * 100); $("lossv").textContent = $("loss").value + "%";
   await loadWorld(); poll(); frame();

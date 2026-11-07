@@ -5,13 +5,13 @@
 - No drone-to-drone sharing, no rendezvous, no takeover of lost drones' sectors.
 - Only battery safety is autonomous.
 """
-from world import BASE_COMMS_RANGE, BASE_POSITION, SECTOR_LABELS, cheb, dist, sector_center
+from world import BASE_COMMS_RANGE, SECTOR_LABELS, cheb, dist, sector_center
 
 
 class Hub:
     def __init__(self, world):
         self.world = world
-        self.pos = BASE_POSITION
+        self.pos = world.base
         self.searched = set()
         self.assigned = {}
         self.found = False
