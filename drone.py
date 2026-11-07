@@ -41,6 +41,9 @@ class Drone:
         self.alive = True
         self.landed = False
         self.recharge_left = None        # ticks until relaunch while swapping battery at base
+        self.swaps = 0                   # battery swaps so far
+        self.min_battery = 1.0           # lowest charge reached
+        self.flight_ticks = 0            # ticks spent in the air (energy used)
 
         if solo:  # no team plan: the whole mountain, in this drone's own random order
             order = list(SECTOR_LABELS)
@@ -360,6 +363,7 @@ class Drone:
                     self.battery = 1.0
                     self.low_batt_done = False
                     self.auto_event = "RELAUNCHED"
+                    self.swaps += 1
             return
         target, ev = self._target(tick)  # uses last tick's contacts
         self.in_contact = set()
@@ -370,6 +374,8 @@ class Drone:
             if in_bounds(nxt):
                 self.pos = nxt
         self.battery = max(0.0, self.battery - BATTERY_DRAIN)
+        self.min_battery = min(self.min_battery, self.battery)
+        self.flight_ticks += 1
         if self.battery <= 0:
             self.alive = False
             self.reason = "Battery depleted."

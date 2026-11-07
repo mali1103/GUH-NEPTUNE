@@ -9,7 +9,12 @@
    "avg_all_know": 602.0,
    "avg_coverage": 0.898,
    "avg_duplicated": 0.697,
-   "avg_belief_error": 34.6
+   "avg_belief_error": 34.6,
+   "avg_swaps": 0.2,
+   "avg_lowest_battery": 0.168,
+   "worst_lowest_battery": 0.026,
+   "avg_flight_ticks": 1291,
+   "ran_flat": 0
   },
   {
    "setup": "Pre-launch plan only (radio dead)",
@@ -19,7 +24,12 @@
    "avg_all_know": 530.5,
    "avg_coverage": 0.984,
    "avg_duplicated": 0.491,
-   "avg_belief_error": 33.0
+   "avg_belief_error": 33.0,
+   "avg_swaps": 0.3,
+   "avg_lowest_battery": 0.238,
+   "worst_lowest_battery": 0.026,
+   "avg_flight_ticks": 1240,
+   "ran_flat": 0
   },
   {
    "setup": "Plan + radio sharing (ours)",
@@ -29,7 +39,12 @@
    "avg_all_know": 172.9,
    "avg_coverage": 0.654,
    "avg_duplicated": 0.236,
-   "avg_belief_error": 8.0
+   "avg_belief_error": 8.0,
+   "avg_swaps": 0.0,
+   "avg_lowest_battery": 0.676,
+   "worst_lowest_battery": 0.53,
+   "avg_flight_ticks": 648,
+   "ran_flat": 0
   },
   {
    "setup": "Central hub (baseline)",
@@ -39,7 +54,12 @@
    "avg_all_know": 720.0,
    "avg_coverage": 0.732,
    "avg_duplicated": 0.244,
-   "avg_belief_error": 34.8
+   "avg_belief_error": 34.8,
+   "avg_swaps": 4.7,
+   "avg_lowest_battery": 0.027,
+   "worst_lowest_battery": 0.027,
+   "avg_flight_ticks": 4434,
+   "ran_flat": 0
   }
  ],
  "curve": {
@@ -52,7 +72,12 @@
     "avg_all_know": 172.9,
     "avg_coverage": 0.654,
     "avg_duplicated": 0.236,
-    "avg_belief_error": 8.0
+    "avg_belief_error": 8.0,
+    "avg_swaps": 0.0,
+    "avg_lowest_battery": 0.676,
+    "worst_lowest_battery": 0.53,
+    "avg_flight_ticks": 648,
+    "ran_flat": 0
    },
    {
     "loss": 0.25,
@@ -62,7 +87,12 @@
     "avg_all_know": 173.4,
     "avg_coverage": 0.654,
     "avg_duplicated": 0.24,
-    "avg_belief_error": 8.2
+    "avg_belief_error": 8.2,
+    "avg_swaps": 0.0,
+    "avg_lowest_battery": 0.675,
+    "worst_lowest_battery": 0.53,
+    "avg_flight_ticks": 661,
+    "ran_flat": 0
    },
    {
     "loss": 0.5,
@@ -72,7 +102,12 @@
     "avg_all_know": 176.9,
     "avg_coverage": 0.651,
     "avg_duplicated": 0.244,
-    "avg_belief_error": 8.4
+    "avg_belief_error": 8.4,
+    "avg_swaps": 0.0,
+    "avg_lowest_battery": 0.663,
+    "worst_lowest_battery": 0.53,
+    "avg_flight_ticks": 664,
+    "ran_flat": 0
    },
    {
     "loss": 0.75,
@@ -82,7 +117,12 @@
     "avg_all_know": 179.6,
     "avg_coverage": 0.65,
     "avg_duplicated": 0.256,
-    "avg_belief_error": 9.6
+    "avg_belief_error": 9.6,
+    "avg_swaps": 0.0,
+    "avg_lowest_battery": 0.655,
+    "worst_lowest_battery": 0.525,
+    "avg_flight_ticks": 701,
+    "ran_flat": 0
    },
    {
     "loss": 0.9,
@@ -92,7 +132,12 @@
     "avg_all_know": 188.9,
     "avg_coverage": 0.651,
     "avg_duplicated": 0.25,
-    "avg_belief_error": 11.7
+    "avg_belief_error": 11.7,
+    "avg_swaps": 0.0,
+    "avg_lowest_battery": 0.652,
+    "worst_lowest_battery": 0.53,
+    "avg_flight_ticks": 703,
+    "ran_flat": 0
    },
    {
     "loss": 1.0,
@@ -102,7 +147,12 @@
     "avg_all_know": 530.5,
     "avg_coverage": 0.984,
     "avg_duplicated": 0.491,
-    "avg_belief_error": 33.0
+    "avg_belief_error": 33.0,
+    "avg_swaps": 0.3,
+    "avg_lowest_battery": 0.238,
+    "worst_lowest_battery": 0.026,
+    "avg_flight_ticks": 1240,
+    "ran_flat": 0
    }
   ],
   "baseline": [
@@ -114,7 +164,12 @@
     "avg_all_know": 720.0,
     "avg_coverage": 0.732,
     "avg_duplicated": 0.244,
-    "avg_belief_error": 34.8
+    "avg_belief_error": 34.8,
+    "avg_swaps": 4.7,
+    "avg_lowest_battery": 0.027,
+    "worst_lowest_battery": 0.027,
+    "avg_flight_ticks": 4434,
+    "ran_flat": 0
    },
    {
     "loss": 0.25,
@@ -124,7 +179,12 @@
     "avg_all_know": 720.8,
     "avg_coverage": 0.696,
     "avg_duplicated": 0.231,
-    "avg_belief_error": 34.3
+    "avg_belief_error": 34.3,
+    "avg_swaps": 4.3,
+    "avg_lowest_battery": 0.027,
+    "worst_lowest_battery": 0.027,
+    "avg_flight_ticks": 4058,
+    "ran_flat": 0
    },
    {
     "loss": 0.5,
@@ -134,7 +194,12 @@
     "avg_all_know": 722.3,
     "avg_coverage": 0.726,
     "avg_duplicated": 0.256,
-    "avg_belief_error": 34.7
+    "avg_belief_error": 34.7,
+    "avg_swaps": 4.7,
+    "avg_lowest_battery": 0.027,
+    "worst_lowest_battery": 0.027,
+    "avg_flight_ticks": 4437,
+    "ran_flat": 0
    },
    {
     "loss": 0.75,
@@ -144,7 +209,12 @@
     "avg_all_know": 909.0,
     "avg_coverage": 0.718,
     "avg_duplicated": 0.251,
-    "avg_belief_error": 34.4
+    "avg_belief_error": 34.4,
+    "avg_swaps": 4.6,
+    "avg_lowest_battery": 0.027,
+    "worst_lowest_battery": 0.027,
+    "avg_flight_ticks": 4274,
+    "ran_flat": 0
    },
    {
     "loss": 0.9,
@@ -154,7 +224,12 @@
     "avg_all_know": 726.7,
     "avg_coverage": 0.72,
     "avg_duplicated": 0.24,
-    "avg_belief_error": 33.2
+    "avg_belief_error": 33.2,
+    "avg_swaps": 4.6,
+    "avg_lowest_battery": 0.027,
+    "worst_lowest_battery": 0.027,
+    "avg_flight_ticks": 4386,
+    "ran_flat": 0
    },
    {
     "loss": 1.0,
@@ -164,7 +239,12 @@
     "avg_all_know": null,
     "avg_coverage": 0.006,
     "avg_duplicated": 1.0,
-    "avg_belief_error": 0.0
+    "avg_belief_error": 0.0,
+    "avg_swaps": 6.0,
+    "avg_lowest_battery": 0.026,
+    "worst_lowest_battery": 0.026,
+    "avg_flight_ticks": 5850,
+    "ran_flat": 0
    }
   ],
   "solo": [
@@ -176,7 +256,12 @@
     "avg_all_know": 602.0,
     "avg_coverage": 0.898,
     "avg_duplicated": 0.697,
-    "avg_belief_error": 34.6
+    "avg_belief_error": 34.6,
+    "avg_swaps": 0.2,
+    "avg_lowest_battery": 0.168,
+    "worst_lowest_battery": 0.026,
+    "avg_flight_ticks": 1291,
+    "ran_flat": 0
    },
    {
     "loss": 0.25,
@@ -186,7 +271,12 @@
     "avg_all_know": 602.0,
     "avg_coverage": 0.898,
     "avg_duplicated": 0.697,
-    "avg_belief_error": 34.6
+    "avg_belief_error": 34.6,
+    "avg_swaps": 0.2,
+    "avg_lowest_battery": 0.168,
+    "worst_lowest_battery": 0.026,
+    "avg_flight_ticks": 1291,
+    "ran_flat": 0
    },
    {
     "loss": 0.5,
@@ -196,7 +286,12 @@
     "avg_all_know": 602.0,
     "avg_coverage": 0.898,
     "avg_duplicated": 0.697,
-    "avg_belief_error": 34.6
+    "avg_belief_error": 34.6,
+    "avg_swaps": 0.2,
+    "avg_lowest_battery": 0.168,
+    "worst_lowest_battery": 0.026,
+    "avg_flight_ticks": 1291,
+    "ran_flat": 0
    },
    {
     "loss": 0.75,
@@ -206,7 +301,12 @@
     "avg_all_know": 602.0,
     "avg_coverage": 0.898,
     "avg_duplicated": 0.697,
-    "avg_belief_error": 34.6
+    "avg_belief_error": 34.6,
+    "avg_swaps": 0.2,
+    "avg_lowest_battery": 0.168,
+    "worst_lowest_battery": 0.026,
+    "avg_flight_ticks": 1291,
+    "ran_flat": 0
    },
    {
     "loss": 0.9,
@@ -216,7 +316,12 @@
     "avg_all_know": 602.0,
     "avg_coverage": 0.898,
     "avg_duplicated": 0.697,
-    "avg_belief_error": 34.6
+    "avg_belief_error": 34.6,
+    "avg_swaps": 0.2,
+    "avg_lowest_battery": 0.168,
+    "worst_lowest_battery": 0.026,
+    "avg_flight_ticks": 1291,
+    "ran_flat": 0
    },
    {
     "loss": 1.0,
@@ -226,7 +331,12 @@
     "avg_all_know": 602.0,
     "avg_coverage": 0.898,
     "avg_duplicated": 0.697,
-    "avg_belief_error": 34.6
+    "avg_belief_error": 34.6,
+    "avg_swaps": 0.2,
+    "avg_lowest_battery": 0.168,
+    "worst_lowest_battery": 0.026,
+    "avg_flight_ticks": 1291,
+    "ran_flat": 0
    }
   ]
  },
@@ -240,7 +350,12 @@
    "avg_all_know": 172.9,
    "avg_coverage": 0.654,
    "avg_duplicated": 0.236,
-   "avg_belief_error": 8.0
+   "avg_belief_error": 8.0,
+   "avg_swaps": 0.0,
+   "avg_lowest_battery": 0.676,
+   "worst_lowest_battery": 0.53,
+   "avg_flight_ticks": 648,
+   "ran_flat": 0
   },
   {
    "scenario": "0% loss",
@@ -251,7 +366,12 @@
    "avg_all_know": 720.0,
    "avg_coverage": 0.732,
    "avg_duplicated": 0.244,
-   "avg_belief_error": 34.8
+   "avg_belief_error": 34.8,
+   "avg_swaps": 4.7,
+   "avg_lowest_battery": 0.027,
+   "worst_lowest_battery": 0.027,
+   "avg_flight_ticks": 4434,
+   "ran_flat": 0
   },
   {
    "scenario": "0% loss",
@@ -262,7 +382,12 @@
    "avg_all_know": 602.0,
    "avg_coverage": 0.898,
    "avg_duplicated": 0.697,
-   "avg_belief_error": 34.6
+   "avg_belief_error": 34.6,
+   "avg_swaps": 0.2,
+   "avg_lowest_battery": 0.168,
+   "worst_lowest_battery": 0.026,
+   "avg_flight_ticks": 1291,
+   "ran_flat": 0
   },
   {
    "scenario": "50% loss",
@@ -273,7 +398,12 @@
    "avg_all_know": 176.9,
    "avg_coverage": 0.651,
    "avg_duplicated": 0.244,
-   "avg_belief_error": 8.4
+   "avg_belief_error": 8.4,
+   "avg_swaps": 0.0,
+   "avg_lowest_battery": 0.663,
+   "worst_lowest_battery": 0.53,
+   "avg_flight_ticks": 664,
+   "ran_flat": 0
   },
   {
    "scenario": "50% loss",
@@ -284,7 +414,12 @@
    "avg_all_know": 722.3,
    "avg_coverage": 0.726,
    "avg_duplicated": 0.256,
-   "avg_belief_error": 34.7
+   "avg_belief_error": 34.7,
+   "avg_swaps": 4.7,
+   "avg_lowest_battery": 0.027,
+   "worst_lowest_battery": 0.027,
+   "avg_flight_ticks": 4437,
+   "ran_flat": 0
   },
   {
    "scenario": "50% loss",
@@ -295,7 +430,12 @@
    "avg_all_know": 602.0,
    "avg_coverage": 0.898,
    "avg_duplicated": 0.697,
-   "avg_belief_error": 34.6
+   "avg_belief_error": 34.6,
+   "avg_swaps": 0.2,
+   "avg_lowest_battery": 0.168,
+   "worst_lowest_battery": 0.026,
+   "avg_flight_ticks": 1291,
+   "ran_flat": 0
   },
   {
    "scenario": "90% loss",
@@ -306,7 +446,12 @@
    "avg_all_know": 188.9,
    "avg_coverage": 0.651,
    "avg_duplicated": 0.25,
-   "avg_belief_error": 11.7
+   "avg_belief_error": 11.7,
+   "avg_swaps": 0.0,
+   "avg_lowest_battery": 0.652,
+   "worst_lowest_battery": 0.53,
+   "avg_flight_ticks": 703,
+   "ran_flat": 0
   },
   {
    "scenario": "90% loss",
@@ -317,7 +462,12 @@
    "avg_all_know": 726.7,
    "avg_coverage": 0.72,
    "avg_duplicated": 0.24,
-   "avg_belief_error": 33.2
+   "avg_belief_error": 33.2,
+   "avg_swaps": 4.6,
+   "avg_lowest_battery": 0.027,
+   "worst_lowest_battery": 0.027,
+   "avg_flight_ticks": 4386,
+   "ran_flat": 0
   },
   {
    "scenario": "90% loss",
@@ -328,7 +478,12 @@
    "avg_all_know": 602.0,
    "avg_coverage": 0.898,
    "avg_duplicated": 0.697,
-   "avg_belief_error": 34.6
+   "avg_belief_error": 34.6,
+   "avg_swaps": 0.2,
+   "avg_lowest_battery": 0.168,
+   "worst_lowest_battery": 0.026,
+   "avg_flight_ticks": 1291,
+   "ran_flat": 0
   },
   {
    "scenario": "blackout @t10",
@@ -339,7 +494,12 @@
    "avg_all_know": 516.5,
    "avg_coverage": 0.984,
    "avg_duplicated": 0.478,
-   "avg_belief_error": 28.0
+   "avg_belief_error": 28.0,
+   "avg_swaps": 0.1,
+   "avg_lowest_battery": 0.236,
+   "worst_lowest_battery": 0.026,
+   "avg_flight_ticks": 1214,
+   "ran_flat": 0
   },
   {
    "scenario": "blackout @t10",
@@ -350,7 +510,12 @@
    "avg_all_know": null,
    "avg_coverage": 0.332,
    "avg_duplicated": 0.21,
-   "avg_belief_error": 9.1
+   "avg_belief_error": 9.1,
+   "avg_swaps": 6.0,
+   "avg_lowest_battery": 0.026,
+   "worst_lowest_battery": 0.026,
+   "avg_flight_ticks": 5850,
+   "ran_flat": 0
   },
   {
    "scenario": "blackout @t10",
@@ -361,7 +526,12 @@
    "avg_all_know": 602.0,
    "avg_coverage": 0.898,
    "avg_duplicated": 0.697,
-   "avg_belief_error": 34.6
+   "avg_belief_error": 34.6,
+   "avg_swaps": 0.2,
+   "avg_lowest_battery": 0.168,
+   "worst_lowest_battery": 0.026,
+   "avg_flight_ticks": 1291,
+   "ran_flat": 0
   },
   {
    "scenario": "drone 1 killed @t40",
@@ -372,7 +542,12 @@
    "avg_all_know": 240.7,
    "avg_coverage": 0.671,
    "avg_duplicated": 0.162,
-   "avg_belief_error": 8.8
+   "avg_belief_error": 8.8,
+   "avg_swaps": 0.0,
+   "avg_lowest_battery": 0.596,
+   "worst_lowest_battery": 0.301,
+   "avg_flight_ticks": 610,
+   "ran_flat": 0
   },
   {
    "scenario": "drone 1 killed @t40",
@@ -383,7 +558,12 @@
    "avg_all_know": 720.0,
    "avg_coverage": 0.652,
    "avg_duplicated": 0.195,
-   "avg_belief_error": 36.2
+   "avg_belief_error": 36.2,
+   "avg_swaps": 3.4,
+   "avg_lowest_battery": 0.027,
+   "worst_lowest_battery": 0.027,
+   "avg_flight_ticks": 3380,
+   "ran_flat": 0
   },
   {
    "scenario": "drone 1 killed @t40",
@@ -394,7 +574,12 @@
    "avg_all_know": 599.6,
    "avg_coverage": 0.856,
    "avg_duplicated": 0.45,
-   "avg_belief_error": 28.6
+   "avg_belief_error": 28.6,
+   "avg_swaps": 0.2,
+   "avg_lowest_battery": 0.171,
+   "worst_lowest_battery": 0.026,
+   "avg_flight_ticks": 962,
+   "ran_flat": 0
   },
   {
    "scenario": "beacon dies on contact",
@@ -405,7 +590,12 @@
    "avg_all_know": 215.8,
    "avg_coverage": 0.702,
    "avg_duplicated": 0.272,
-   "avg_belief_error": 8.3
+   "avg_belief_error": 8.3,
+   "avg_swaps": 0.0,
+   "avg_lowest_battery": 0.62,
+   "worst_lowest_battery": 0.11,
+   "avg_flight_ticks": 770,
+   "ran_flat": 0
   },
   {
    "scenario": "beacon dies on contact",
@@ -416,7 +606,12 @@
    "avg_all_know": 1080.0,
    "avg_coverage": 0.788,
    "avg_duplicated": 0.25,
-   "avg_belief_error": 35.9
+   "avg_belief_error": 35.9,
+   "avg_swaps": 4.9,
+   "avg_lowest_battery": 0.027,
+   "worst_lowest_battery": 0.027,
+   "avg_flight_ticks": 4420,
+   "ran_flat": 0
   },
   {
    "scenario": "beacon dies on contact",
@@ -427,7 +622,12 @@
    "avg_all_know": 1104.3,
    "avg_coverage": 0.982,
    "avg_duplicated": 0.898,
-   "avg_belief_error": 34.4
+   "avg_belief_error": 34.4,
+   "avg_swaps": 1.9,
+   "avg_lowest_battery": 0.076,
+   "worst_lowest_battery": 0.026,
+   "avg_flight_ticks": 2344,
+   "ran_flat": 0
   },
   {
    "scenario": "beacon off (no signal)",
@@ -438,7 +638,12 @@
    "avg_all_know": 306.5,
    "avg_coverage": 0.842,
    "avg_duplicated": 0.291,
-   "avg_belief_error": 9.0
+   "avg_belief_error": 9.0,
+   "avg_swaps": 0.0,
+   "avg_lowest_battery": 0.5,
+   "worst_lowest_battery": 0.11,
+   "avg_flight_ticks": 1037,
+   "ran_flat": 0
   },
   {
    "scenario": "beacon off (no signal)",
@@ -449,7 +654,12 @@
    "avg_all_know": 720.0,
    "avg_coverage": 0.871,
    "avg_duplicated": 0.261,
-   "avg_belief_error": 38.9
+   "avg_belief_error": 38.9,
+   "avg_swaps": 5.2,
+   "avg_lowest_battery": 0.027,
+   "worst_lowest_battery": 0.027,
+   "avg_flight_ticks": 4706,
+   "ran_flat": 0
   },
   {
    "scenario": "beacon off (no signal)",
@@ -460,8 +670,13 @@
    "avg_all_know": 1175.8,
    "avg_coverage": 0.999,
    "avg_duplicated": 0.946,
-   "avg_belief_error": 35.5
+   "avg_belief_error": 35.5,
+   "avg_swaps": 2.4,
+   "avg_lowest_battery": 0.056,
+   "worst_lowest_battery": 0.026,
+   "avg_flight_ticks": 2889,
+   "ran_flat": 0
   }
  ],
- "seconds": 145.7
+ "seconds": 132.3
 }

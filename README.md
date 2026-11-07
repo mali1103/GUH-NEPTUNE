@@ -20,7 +20,8 @@ pip install -r requirements.txt
 # 3. Run the server
 uvicorn server:app --reload
 
-# 4. Open http://localhost:8000
+# 4. Open http://localhost:8000          (one team, full detail)
+#    or   http://localhost:8000/compare  (all three teams side by side)
 ```
 
 No API keys, no internet, no extra services: the drones' decision-making is plain Python.
@@ -64,6 +65,7 @@ It checks that: with the radio off, each drone knows only what its own sensors s
 - **Common goal:** the plan alone makes the team 17% faster than drones searching alone; the radio then halves double-searching and gets the news to everyone 3.1× sooner.
 - **Resilience:** ours finds the hiker on every map at 0, 25, 50, 75, 90 and 100% packet loss, through a total blackout, a killed drone, and a beacon that dies or was never on. The central hub falls to 0% when the radio fails completely.
 - **Beacon off (dead phone):** ours finds the hiker in 282 ticks on average vs 638 for drones searching alone.
+- **Battery / energy:** with the radio working, ours used 648 drone-ticks of flight in total vs 1,291 with no coordination and 4,434 for the central hub (its drones hover waiting for orders, drain to the 3% reserve and swap batteries ~5 times a run). Ours never needed a swap; its lowest charge averaged 68%. No drone ran flat in any mode or scenario (`python bench.py --show` prints battery use per scenario).
 
 ---
 
@@ -77,7 +79,8 @@ It checks that: with the radio off, each drone knows only what its own sensors s
 | `baseline.py` | Central-hub baseline mode, for comparison |
 | `sim.py` | Tick loop, comms, decisions, metrics, the three modes, headless benchmarks |
 | `server.py` | FastAPI: serves the page, `/state` and `/world` JSON, control endpoints |
-| `static/index.html` | One file: canvas, controls, reasoning log, metrics (vanilla JS) |
+| `static/index.html` | Single run in full detail: canvas, controls, reasoning log, metrics, evidence panel (vanilla JS) |
+| `static/compare.html` | The three teams side by side on the same map, driven by one set of controls |
 | `bench.py` | Headless comparison across seeds, packet loss and failure scenarios |
 | `tests/test_isolation.py` | Proves the agents are independent and only talk over the radio |
 
@@ -335,6 +338,15 @@ Each drone runs its own copy of `decide`, called only on events. It is **rules-b
 
 ## Web UI
 
+### Side-by-side comparison (`/compare`)
+
+Three maps at once: **Ours**, **Central hub** and **No coordination**, on the same seed, launch point and beacon setting. One set of controls drives all three in lockstep: Start/Step/Speed, packet loss, comms blackout and *Kill drone N* hit every team at the same tick, so it's a fair race. Each column shows a live status badge (searching / FOUND at tick X / not found), a **found first** highlight, key numbers (time to find, when all drones knew, drones alive, searched, searched twice, messages lost), a **battery bar per drone** (charge, colour by level, a tick marking the lowest it has been, and status: flying / heading home / swapping battery / landed / ran flat, plus swap count) and its latest decisions. On the maps, a ring around each drone shows its battery.
+
+Default seed **23** is typical of the benchmark averages: ours finds the hiker at tick ~111, no coordination at ~287, the central hub not at all, and that ordering holds when drone 1 is killed at tick 40. Single runs vary (a team with no plan can get lucky and start next to the hiker), which is why the Evidence panel averages many maps.
+
+### Single run (`/`)
+
+
 - **Demo seed 2** (the default, launch point random → near the top-left corner): drone 1 owns the diagonal `A E I` and the hiker is in the far corner, sector I. Kill drone 1 around tick 40: drones 0 and 2 take over its wedge and still find the hiker (tick ~250); the baseline never does.
 - **Launch from:** pick a wall or corner (or random) to show the plan adapting; the plan for the current launch point is shown under the controls.
 - **Hiker's beacon:** working / dies right after first contact / off. Drone cards show *camera search* and the estimate's uncertainty; the canvas shows the estimate in orange.
@@ -358,6 +370,9 @@ Each drone runs its own copy of `decide`, called only on events. It is **rules-b
 | POST | `/control/kill` | `{"drone_id": 2}` |
 | GET | `/bench` | saved benchmark results (`bench_results.json`) |
 | POST | `/bench` | `{"seeds": 5}` re-runs all benchmarks and saves them |
+| GET | `/compare` | the side-by-side page |
+| GET | `/compare/world`, `/compare/state` | shared map; state of all three teams |
+| POST | `/compare/control/{start,pause,step,reset,speed,packet_loss,comms,kill,reveal}` | same bodies as the single-run controls; applied to all three teams |
 
 ---
 

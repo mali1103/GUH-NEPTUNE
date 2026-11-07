@@ -11,18 +11,20 @@ from fastapi import Body, FastAPI
 from fastapi.responses import FileResponse
 
 from bench import run_all
-from sim import MODES, Sim
+from sim import MODES, Compare, Sim
 
 ROOT = Path(__file__).parent
 STATIC = ROOT / "static"
 BENCH_FILE = ROOT / "bench_results.json"
 
 sim = Sim(seed=2, mode="ours", start="random")  # demo: base top-left, hiker in drone 1's far sector
+compare = Compare(seed=23, start="random")       # the three modes side by side (/compare); seed 23 is typical
 
 
 @asynccontextmanager
 async def lifespan(_app):
     threading.Thread(target=sim.run_forever, daemon=True, name="sim-loop").start()
+    threading.Thread(target=compare.run_forever, daemon=True, name="compare-loop").start()
     yield
 
 
@@ -118,3 +120,46 @@ def bench_run(body: dict = Body(default={})):
     results = run_all(seeds)
     BENCH_FILE.write_text(json.dumps(results, indent=1), encoding="utf-8")
     return results
+
+
+# ---------------------------------------------------------------- side-by-side comparison
+@app.get("/compare")
+def compare_page():
+    return FileResponse(STATIC / "compare.html")
+
+
+@app.get("/compare/world")
+def compare_world():
+    return compare.world_json()
+
+
+@app.get("/compare/state")
+def compare_state():
+    return compare.to_json()
+
+
+@app.post("/compare/control/{what}")
+def compare_control(what: str, body: dict = Body(default={})):
+    if what == "start":
+        if not compare.done():
+            compare.running = True
+    elif what == "pause":
+        compare.running = False
+    elif what == "step":
+        compare.running = False
+        compare.step()
+    elif what == "reset":
+        compare.reset(body.get("seed"), body.get("start"), body.get("beacon"))
+    elif what == "speed":
+        compare.tps = max(1, min(60, int(body.get("ticks_per_second", 8))))
+    elif what == "packet_loss":
+        compare.set(packet_loss=max(0.0, min(1.0, float(body.get("value", 0)))))
+    elif what == "comms":
+        compare.set(comms_enabled=bool(body.get("enabled", True)))
+    elif what == "kill":
+        compare.kill(int(body["drone_id"]))
+    elif what == "reveal":
+        compare.set(reveal=bool(body.get("enabled", False)))
+    else:
+        return {"ok": False, "error": f"unknown control {what}"}
+    return {"ok": True}

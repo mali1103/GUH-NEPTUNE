@@ -201,10 +201,14 @@ class Sim:
         m["coverage"] = round(len(union) / cells, 3)
         m["duplicated"] = round(len(dup) / max(1, len(union)), 3)
         m["belief_error"] = round(self.belief_err_sum / self.belief_err_n, 1) if self.belief_err_n else 0.0
+        m["battery_swaps"] = sum(d.swaps for d in self.drones)
+        m["lowest_battery"] = round(min(d.min_battery for d in self.drones), 3)
+        m["flight_ticks"] = sum(d.flight_ticks for d in self.drones)
+        m["ran_flat"] = sum(1 for d in self.drones if not d.alive and d.battery <= 0)
         m["ticks"] = self.tick
         return m, union, dup
 
-    def to_json(self, view=-1):
+    def to_json(self, view=-1, log_lines=80):
         with self.lock:
             m, union, dup = self.summary()
             g = GRID_SIZE
@@ -240,6 +244,8 @@ class Sim:
                     "best_signal": d.best_signal,
                     "search_mode": "camera" if d.camera_mode else "beacon",
                     "recharging": d.recharge_left,
+                    "swaps": d.swaps, "min_battery": round(d.min_battery, 3),
+                    "flight_ticks": d.flight_ticks,
                     # what this drone BELIEVES about each teammate (may be stale or wrong)
                     "beliefs": {j: {"pos": t["position"], "action": t["current_action"],
                                     "target": t["current_target"], "age": self.tick - t["last_heard"],
@@ -252,7 +258,7 @@ class Sim:
                                  if d.estimate else None),
                 } for d in self.drones],
                 "metrics": m,
-                "log": list(self.log)[-80:],
+                "log": list(self.log)[-log_lines:],
             }
 
     def world_json(self):
@@ -262,6 +268,66 @@ class Sim:
                 "plan": {d.id: d.my_sectors for d in self.drones},
                 "rendezvous": RENDEZVOUS_POINT, "sectors": list(SECTOR_LABELS), "seed": self.seed,
                 "mode": self.mode}
+
+
+# ---------------------------------------------------------------- side by side
+class Compare:
+    """The three modes on the same map, stepped in lockstep. Every control (packet loss,
+    blackout, killing a drone) hits all three at the same tick, so it's a fair race."""
+
+    def __init__(self, seed=2, start="random", beacon="on"):
+        self.lock = threading.RLock()
+        self.tps = 8
+        self.running = False
+        self.sims = [Sim(seed, m, start, beacon) for m in MODES]
+
+    def reset(self, seed=None, start=None, beacon=None):
+        with self.lock:
+            self.running = False
+            for s in self.sims:
+                s.reset(seed, None, start, beacon)
+
+    def set(self, **attrs):
+        with self.lock:
+            for s in self.sims:
+                for k, v in attrs.items():
+                    setattr(s, k, v)
+
+    def kill(self, i):
+        with self.lock:
+            for s in self.sims:
+                s.kill(i)
+
+    def done(self):
+        return all(s.status in ("complete", "failed") for s in self.sims)
+
+    def step(self):
+        with self.lock:
+            for s in self.sims:
+                s.step()
+            if self.done():
+                self.running = False
+
+    def run_forever(self):
+        while True:
+            if self.running:
+                self.step()
+                time.sleep(1.0 / max(1, self.tps))
+            else:
+                time.sleep(0.05)
+
+    def to_json(self):
+        with self.lock:
+            sims = [s.to_json(-1, log_lines=4) for s in self.sims]
+            found = [(s["metrics"]["found_tick"], i) for i, s in enumerate(sims) if s["metrics"]["found_tick"]]
+            return {"running": self.running, "tps": self.tps, "done": self.done(),
+                    "first": min(found)[1] if found else None, "sims": sims}
+
+    def world_json(self):
+        with self.lock:
+            w = self.sims[0].world_json()
+            w["plans"] = [s.world_json()["plan"] for s in self.sims]
+            return w
 
 
 # ---------------------------------------------------------------- headless
@@ -287,6 +353,11 @@ def _aggregate(runs):
         "avg_coverage": round(sum(r["coverage"] for r in runs) / n, 3),
         "avg_duplicated": round(sum(r["duplicated"] for r in runs) / n, 3),
         "avg_belief_error": round(sum(r["belief_error"] for r in runs) / n, 1),
+        "avg_swaps": round(sum(r["battery_swaps"] for r in runs) / n, 1),
+        "avg_lowest_battery": round(sum(r["lowest_battery"] for r in runs) / n, 3),
+        "worst_lowest_battery": min(r["lowest_battery"] for r in runs),
+        "avg_flight_ticks": round(sum(r["flight_ticks"] for r in runs) / n),
+        "ran_flat": sum(r["ran_flat"] for r in runs),
     }
 
 

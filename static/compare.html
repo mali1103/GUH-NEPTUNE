@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Side-by-side Comparison</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #171e26; --line: #263241; --text: #e6edf3; --muted: #8b98a8;
+    --good: #51cf66; --bad: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 12px 20px; border-bottom: 1px solid var(--line); display: flex; gap: 16px;
+           align-items: baseline; flex-wrap: wrap; }
+  header h1 { margin: 0; font-size: 18px; }
+  header a { color: #74c0fc; }
+  #tick { margin-left: auto; font-weight: 600; }
+  .controls { padding: 12px 20px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+              border-bottom: 1px solid var(--line); }
+  button, select, input[type=number] { background: #223040; color: var(--text); border: 1px solid #33465c;
+         border-radius: 6px; padding: 6px 10px; font: inherit; cursor: pointer; }
+  button:hover { background: #2b3d52; }
+  button.primary { background: #2f6f3e; border-color: #3f8f52; }
+  button.danger { background: #5a2626; border-color: #7a3434; }
+  button.off { background: #5a2626; }
+  input[type=number] { width: 70px; }
+  input[type=range] { width: 110px; }
+  label { color: var(--muted); }
+  .sep { width: 1px; height: 24px; background: var(--line); margin: 0 4px; }
+  main { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; padding: 14px 20px; }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; max-width: 640px; margin: 0 auto; } }
+  .col { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; min-width: 0; }
+  .col.first { border-color: var(--good); box-shadow: 0 0 0 1px var(--good); }
+  .head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+  .head h2 { margin: 0; font-size: 16px; }
+  .what { color: var(--muted); font-size: 12px; margin-bottom: 8px; min-height: 32px; }
+  .badge { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 10px; background: #223040; }
+  .badge.found { background: #1f4d2b; color: #b2f2bb; }
+  .badge.failed { background: #5a2626; color: #ffc9c9; }
+  .badge.firstb { background: var(--good); color: #0f1419; }
+  canvas { width: 100%; height: auto; display: block; border-radius: 6px; background: #1b2530; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+  .stat { background: #1b2530; border-radius: 6px; padding: 6px 8px; }
+  .stat .v { font-size: 18px; font-weight: 700; }
+  .stat .k { color: var(--muted); font-size: 11px; }
+  .bats { margin-top: 8px; display: grid; gap: 4px; }
+  .bat { display: grid; grid-template-columns: 26px 1fr 120px; align-items: center; gap: 8px; font-size: 12px; }
+  .bat .id { font-weight: 700; }
+  .bat .track { height: 10px; background: #2a3646; border-radius: 5px; overflow: hidden; position: relative; }
+  .bat .fill { height: 100%; border-radius: 5px; transition: width .2s; }
+  .bat .low { position: absolute; top: 0; bottom: 0; width: 2px; background: #e6edf3; opacity: .6; }
+  .bat .txt { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bat .txt b { color: var(--text); }
+  .log { margin-top: 8px; font: 12px/1.4 ui-monospace, Consolas, monospace; color: var(--muted); min-height: 70px; }
+  .log div { padding: 2px 0; border-bottom: 1px solid #1f2a36; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .log b { color: var(--text); }
+  .legend { padding: 0 20px 16px; display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🚁 Three teams, one mountain</h1>
+  <span style="color:var(--muted)">same map, same failures at the same tick</span>
+  <a href="/">← single run with full detail</a>
+  <span id="tick">-</span>
+</header>
+<div class="controls">
+  <button id="play" class="primary">▶ Start</button>
+  <button id="step">Step</button>
+  <label>Speed <input type="range" id="speed" min="1" max="40" value="8"></label><span id="speedv">8/s</span>
+  <span class="sep"></span>
+  <label>Seed <input type="number" id="seed" value="2"></label>
+  <select id="start">
+    <option value="random">Launch: random edge</option>
+    <option value="S">Launch: bottom wall</option><option value="N">Launch: top wall</option>
+    <option value="W">Launch: left wall</option><option value="E">Launch: right wall</option>
+    <option value="NW">Launch: top-left</option><option value="NE">Launch: top-right</option>
+    <option value="SW">Launch: bottom-left</option><option value="SE">Launch: bottom-right</option>
+  </select>
+  <select id="beacon">
+    <option value="on">Beacon: working</option>
+    <option value="dies">Beacon: dies on contact</option>
+    <option value="off">Beacon: off (dead phone)</option>
+  </select>
+  <button id="reset">Reset all</button>
+  <span class="sep"></span>
+  <label>Packet loss <input type="range" id="loss" min="0" max="100" value="0"></label><span id="lossv">0%</span>
+  <button id="comms">📡 Comms ON</button>
+  <button class="danger" data-kill="0">Kill 0</button>
+  <button class="danger" data-kill="1">Kill 1</button>
+  <button class="danger" data-kill="2">Kill 2</button>
+  <label><input type="checkbox" id="reveal"> reveal hiker</label>
+</div>
+<main id="cols"></main>
+<div class="legend">
+  <span><span class="sw" style="width:60px;background:linear-gradient(90deg,#18402e,#3e7840,#a09650,#8c623e,#beb4af,#fafafc)"></span>terrain height</span>
+  <span><span class="sw" style="background:#2a313b"></span>not searched</span>
+  <span>dots = searched by drone (<span class="sw" style="background:#ff6b6b"></span>0
+    <span class="sw" style="background:#4dabf7"></span>1 <span class="sw" style="background:#ffd43b"></span>2,
+    <span class="sw" style="background:#cc5de8"></span>by two drones)</span>
+  <span><span class="sw" style="background:#51cf66"></span>radio link</span>
+  <span><span class="sw" style="background:#ff922b"></span>estimate after beacon died</span>
+  <span>■ base · ◌ rendezvous · ★ hiker</span>
+  <span>ring around a drone = battery left (<span class="sw" style="background:#51cf66"></span>&gt;50%
+    <span class="sw" style="background:#fab219"></span>&gt;25% <span class="sw" style="background:#ff6b6b"></span>low); white tick on a bar = lowest so far</span>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const post = (path, body = {}) =>
+  fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+const COLORS = ["#ff6b6b", "#4dabf7", "#ffd43b"];
+const TEAMS = [
+  { name: "Ours (decentralised)", what: "Pre-launch plan, radio sharing when in range, rendezvous, take over lost teammates' sectors." },
+  { name: "Central hub", what: "Base assigns sectors; a drone that can't reach base hovers and waits for orders." },
+  { name: "No coordination", what: "No plan, no radio: each drone searches the whole mountain alone in its own order." },
+];
+let W = null, S = null, worldKey = null, terrain = null;
+const SIZE = 600;
+
+// ---- terrain heatmap (shared by all three: same seed, same map)
+const STOPS = [[0, [24, 64, 46]], [0.3, [62, 120, 64]], [0.55, [160, 150, 80]],
+               [0.75, [140, 98, 62]], [0.9, [190, 180, 175]], [1, [250, 250, 252]]];
+function heatColor(v) {
+  for (let i = 1; i < STOPS.length; i++) {
+    const [p1, c1] = STOPS[i], [p0, c0] = STOPS[i - 1];
+    if (v <= p1) { const t = (v - p0) / (p1 - p0); return c0.map((a, k) => Math.round(a + (c1[k] - a) * t)); }
+  }
+  return STOPS[STOPS.length - 1][1];
+}
+function buildTerrain() {
+  const n = W.size, c = SIZE / n, H = (x, y) => W.heights[y * n + x];
+  terrain = document.createElement("canvas"); terrain.width = terrain.height = SIZE;
+  const t = terrain.getContext("2d");
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const [r, g, b] = heatColor(H(x, y));
+    const dz = (x > 0 ? H(x - 1, y) : H(x, y)) - H(x, y) + (y > 0 ? H(x, y - 1) : H(x, y)) - H(x, y);
+    const k = Math.max(0.7, Math.min(1.25, 1 - dz * 2.2));
+    t.fillStyle = `rgb(${Math.min(255, r * k)},${Math.min(255, g * k)},${Math.min(255, b * k)})`;
+    t.fillRect(x * c, y * c, c + 0.5, c + 0.5);
+  }
+  t.strokeStyle = "rgba(0,0,0,0.25)"; t.lineWidth = 1; t.beginPath();
+  const band = (v) => Math.floor(v * 5);
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    if (x + 1 < n && band(H(x, y)) !== band(H(x + 1, y))) { t.moveTo((x + 1) * c, y * c); t.lineTo((x + 1) * c, (y + 1) * c); }
+    if (y + 1 < n && band(H(x, y)) !== band(H(x, y + 1))) { t.moveTo(x * c, (y + 1) * c); t.lineTo((x + 1) * c, (y + 1) * c); }
+  }
+  t.stroke();
+}
+
+function hexA(hex, a) { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
+
+function draw(cv, s) {
+  const ctx = cv.getContext("2d"), n = W.size, c = SIZE / n;
+  ctx.drawImage(terrain, 0, 0);
+  for (let i = 0; i < s.grid.length; i++) {
+    const v = s.grid[i], x = i % n, y = Math.floor(i / n);
+    if (v < 0) { ctx.fillStyle = "rgba(8,12,18,0.55)"; ctx.fillRect(x * c, y * c, c, c); continue; }
+    ctx.fillStyle = v === 3 ? "rgba(204,93,232,0.9)" : hexA(COLORS[v], 0.85);
+    ctx.beginPath(); ctx.arc(x * c + c / 2, y * c + c / 2, c * 0.18, 0, 7); ctx.fill();
+  }
+  const ss = W.sector_size;
+  ctx.strokeStyle = "rgba(255,255,255,0.22)"; ctx.lineWidth = 1;
+  ctx.font = `bold ${ss * c * 0.16}px system-ui`; ctx.fillStyle = "rgba(255,255,255,0.13)";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (let i = 0; i < 9; i++) {
+    const sx = (i % 3) * ss * c, sy = Math.floor(i / 3) * ss * c;
+    ctx.strokeRect(sx, sy, ss * c, ss * c); ctx.fillText(W.sectors[i], sx + ss * c / 2, sy + ss * c / 2);
+  }
+  const ctr = ([x, y]) => [x * c + c / 2, y * c + c / 2];
+  const [bx, by] = ctr(W.base);
+  ctx.fillStyle = "#adb5bd"; ctx.fillRect(bx - 7, by - 7, 14, 14);
+  const [rx, ry] = ctr(W.rendezvous);
+  ctx.strokeStyle = "#e6edf3"; ctx.setLineDash([4, 3]); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(rx, ry, 14, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+  for (const l of s.links) {
+    const [x1, y1] = ctr(s.drones[l.a].pos), [x2, y2] = ctr(l.b === "hub" ? W.base : s.drones[l.b].pos);
+    ctx.strokeStyle = l.ok ? "rgba(81,207,102,0.9)" : "rgba(255,107,107,0.8)";
+    ctx.setLineDash(l.ok ? [] : [5, 4]); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  for (const d of s.drones) {
+    if (!d.estimate) continue;
+    const [ex, ey] = ctr(d.estimate.center);
+    ctx.strokeStyle = "#ff922b"; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+    ctx.beginPath(); ctx.arc(ex, ey, Math.max(1.5, d.estimate.radius) * c * 1.5, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = "#ff922b"; ctx.font = "bold 20px system-ui"; ctx.fillText("?", ex, ey);
+  }
+  if (s.hiker) {
+    const [hx, hy] = ctr(s.hiker);
+    ctx.fillStyle = s.hiker_found ? "#51cf66" : "rgba(255,255,255,0.6)";
+    ctx.font = "26px system-ui"; ctx.fillText("★", hx, hy);
+  }
+  for (const d of s.drones) {
+    const [x, y] = ctr(d.pos), R = 10;
+    if (d.alive) {  // battery ring: full circle = full battery
+      ctx.strokeStyle = "rgba(15,20,25,0.8)"; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(x, y, R + 4, 0, 7); ctx.stroke();
+      ctx.strokeStyle = d.battery > 0.5 ? "#51cf66" : d.battery > 0.25 ? "#fab219" : "#ff6b6b"; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(x, y, R + 4, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * d.battery); ctx.stroke();
+    }
+    ctx.fillStyle = d.alive ? d.color : "#555";
+    ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.fill();
+    ctx.strokeStyle = "#0f1419"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = "#0f1419"; ctx.font = "bold 12px system-ui"; ctx.fillText(d.id, x, y + 1);
+    if (!d.alive) {
+      ctx.strokeStyle = "#ff6b6b"; ctx.lineWidth = 3; ctx.beginPath();
+      ctx.moveTo(x - R, y - R); ctx.lineTo(x + R, y + R); ctx.moveTo(x + R, y - R); ctx.lineTo(x - R, y + R); ctx.stroke();
+    }
+  }
+}
+
+// ---- columns
+function buildColumns() {
+  $("cols").innerHTML = TEAMS.map((t, i) => `
+    <div class="col" id="col${i}">
+      <div class="head"><h2>${t.name}</h2><span class="badge" id="badge${i}">ready</span><span class="badge firstb" id="first${i}" hidden>found first</span></div>
+      <div class="what">${t.what}</div>
+      <canvas id="cv${i}" width="${SIZE}" height="${SIZE}"></canvas>
+      <div class="stats" id="stats${i}"></div>
+      <div class="bats" id="bats${i}"></div>
+      <div class="log" id="log${i}"></div>
+    </div>`).join("");
+}
+const esc = (s) => String(s ?? "").replace(/[&<>]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[ch]));
+
+function render() {
+  const any = S.sims[0];
+  $("tick").textContent = `tick ${Math.max(...S.sims.map((s) => s.tick))}${S.done ? " · all finished" : ""}`;
+  $("play").textContent = S.running ? "⏸ Pause" : "▶ Start";
+  $("comms").textContent = any.comms_enabled ? "📡 Comms ON" : "📵 Comms OFF";
+  $("comms").classList.toggle("off", !any.comms_enabled);
+  S.sims.forEach((s, i) => {
+    draw($(`cv${i}`), s);
+    const m = s.metrics, b = $(`badge${i}`);
+    if (m.found_tick) { b.textContent = `FOUND at tick ${m.found_tick}`; b.className = "badge found"; }
+    else if (s.status === "failed") { b.textContent = `not found (gave up at ${s.tick})`; b.className = "badge failed"; }
+    else { b.textContent = s.status === "ready" ? "ready" : `searching · tick ${s.tick}`; b.className = "badge"; }
+    $(`first${i}`).hidden = S.first !== i;
+    $(`col${i}`).classList.toggle("first", S.first === i);
+    const st = (k, v) => `<div class="stat"><div class="v">${v}</div><div class="k">${k}</div></div>`;
+    const alive = s.drones.filter((d) => d.alive).length;
+    $(`stats${i}`).innerHTML =
+      st("time to find", m.found_tick ?? "-") + st("all drones know", m.all_know_tick ?? "-") +
+      st("drones alive", `${alive}/3`) + st("searched", Math.round(m.coverage * 100) + "%") +
+      st("searched twice", Math.round(m.duplicated * 100) + "%") + st("messages lost", `${m.msgs_dropped}/${m.msgs_sent}`);
+    $(`bats${i}`).innerHTML = s.drones.map((d) => {
+      const p = Math.round(d.battery * 100);
+      const col = !d.alive ? "#555" : d.battery > 0.5 ? "#51cf66" : d.battery > 0.25 ? "#fab219" : "#ff6b6b";
+      const state = !d.alive ? (d.battery <= 0 ? "ran flat" : "lost") : d.recharging != null ? `swapping battery (${d.recharging})`
+        : d.landed ? "landed" : d.action === "RETURN_HOME" ? "heading home" : "flying";
+      const swaps = d.swaps ? ` · ${d.swaps} swap${d.swaps > 1 ? "s" : ""}` : "";
+      return `<div class="bat"><span class="id" style="color:${d.color}">D${d.id}</span>
+        <div class="track" title="lowest so far: ${Math.round(d.min_battery * 100)}%"><div class="fill" style="width:${p}%;background:${col}"></div>
+          <div class="low" style="left:${Math.round(d.min_battery * 100)}%"></div></div>
+        <span class="txt"><b>${p}%</b> ${state}${swaps}</span></div>`;
+    }).join("");
+    $(`log${i}`).innerHTML = s.log.slice().reverse().map((e) =>
+      `<div>[${e.tick}] <b style="color:${typeof e.drone === "number" ? COLORS[e.drone] : "#adb5bd"}">${typeof e.drone === "number" ? "D" + e.drone : "Hub"}</b> ${esc(e.action)}${e.arg != null ? " " + esc(e.arg) : ""}: ${esc(e.reason)}</div>`).join("");
+  });
+}
+
+async function loadWorld() {
+  W = await (await fetch("/compare/world")).json();
+  worldKey = `${W.seed}|${W.start}|${W.beacon}`;
+  buildTerrain();
+}
+async function poll() {
+  try {
+    S = await (await fetch("/compare/state")).json();
+    const s0 = S.sims[0];
+    if (!W || worldKey !== `${s0.seed}|${s0.start}|${s0.beacon.mode}`) await loadWorld();
+    render();
+  } catch (e) { $("tick").textContent = "server offline"; }
+  setTimeout(poll, 150);
+}
+
+$("play").onclick = () => post(S && S.running ? "/compare/control/pause" : "/compare/control/start");
+$("step").onclick = () => post("/compare/control/step");
+$("reset").onclick = async () => {
+  await post("/compare/control/reset", { seed: +$("seed").value, start: $("start").value, beacon: $("beacon").value });
+  await loadWorld();
+};
+$("start").onchange = $("beacon").onchange = () => $("reset").click();
+$("speed").oninput = (e) => { $("speedv").textContent = e.target.value + "/s"; post("/compare/control/speed", { ticks_per_second: +e.target.value }); };
+$("loss").oninput = (e) => { $("lossv").textContent = e.target.value + "%"; post("/compare/control/packet_loss", { value: e.target.value / 100 }); };
+$("comms").onclick = () => post("/compare/control/comms", { enabled: !S.sims[0].comms_enabled });
+document.querySelectorAll("[data-kill]").forEach((b) => (b.onclick = () => post("/compare/control/kill", { drone_id: +b.dataset.kill })));
+$("reveal").onchange = (e) => post("/compare/control/reveal", { enabled: e.target.checked });
+
+(async () => {
+  buildColumns();
+  const s = await (await fetch("/compare/state")).json();
+  const s0 = s.sims[0];
+  $("seed").value = s0.seed; $("start").value = s0.start; $("beacon").value = s0.beacon.mode;
+  $("speed").value = s.tps; $("speedv").textContent = s.tps + "/s";
+  $("loss").value = Math.round(s0.packet_loss * 100); $("lossv").textContent = $("loss").value + "%";
+  await loadWorld(); poll();
+})();
+</script>
+</body>
+</html>
