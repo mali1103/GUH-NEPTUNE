@@ -250,12 +250,14 @@ class World:
     def line_of_sight(self, a, b, za=None, zb=None):
         """True if the straight line from a (altitude za) to b (altitude zb) clears the terrain.
         Defaults to drone flying altitude at both ends."""
+        za = self.altitude(a) if za is None else za
+        zb = self.altitude(b) if zb is None else zb
+        if b < a:  # same answer both ways: the raster line A->B can differ from B->A
+            a, b, za, zb = b, a, zb, za
         pts = bresenham(a, b)
         n = len(pts) - 1
         if n <= 1:
             return True
-        za = self.altitude(a) if za is None else za
-        zb = self.altitude(b) if zb is None else zb
         for i in range(1, n):
             if self.h(pts[i]) > za + (zb - za) * i / n:
                 return False

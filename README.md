@@ -44,6 +44,14 @@ Headless benchmark (ours vs baseline, rules agent, several seeds):
 python bench.py --seeds 5
 ```
 
+Independence test (no API key needed, ~12 s). Proves the drones only share information over the simulated radio and each LLM agent sees only its own drone's knowledge:
+
+```bash
+python tests/test_isolation.py
+```
+
+It checks that: with the radio off, each drone knows only what its own sensors saw; every delivered message (3,000+ per run of the test) had the radio on, both drones alive, range ≤ `COMMS_RANGE` and a clear line over the terrain; nobody hears from a drone after it is killed; line of sight is the same in both directions; and each LLM call carries only its own drone's memory and never the raw map.
+
 ---
 
 ## The challenge brief, and how we answer it
@@ -69,6 +77,7 @@ python bench.py --seeds 5
 | `server.py` | FastAPI: serves the page, `/state` and `/world` JSON, control endpoints |
 | `static/index.html` | One file: canvas, controls, reasoning log, metrics (vanilla JS) |
 | `bench.py` | Headless comparison across seeds, packet loss and failure scenarios |
+| `tests/test_isolation.py` | Proves the agents are independent and only talk over the radio |
 
 ---
 
