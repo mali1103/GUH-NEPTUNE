@@ -10,10 +10,10 @@ from baseline import Hub
 from drone import COLORS, Drone
 from world import (
     BASE_POSITION, COMMS_RANGE, GRID_SIZE, MAX_TICKS, NUM_DRONES, RENDEZVOUS_POINT,
-    SECTOR_LABELS, World, dist,
+    SECTOR_LABELS, SECTOR_SIZE, World, dist,
 )
 
-LLM_TIMEOUT_FREE = 2.0
+LLM_TIMEOUT_FREE = 5.0  # measured ~3s per Haiku decision; 2s fell back every time
 LLM_TIMEOUT_WAIT = 8.0
 
 
@@ -160,6 +160,9 @@ class Sim:
             if not self.wait_for_agents:
                 d.apply(c["action"], c["arg"], c["note"], "rules (provisional)", t, event)
         else:
+            if d.pending:  # e.g. LOW_BATTERY: drop any slower decision still in flight
+                d.pending["future"].cancel()
+                d.pending = None
             d.apply(c["action"], c["arg"], c["note"], "rules", t, event)
             self.add_log(t, d.id, "rules", event, c["action"], c["arg"], c["note"])
 
@@ -187,8 +190,8 @@ class Sim:
                     self.llm["in"] += usage["in"]
                     self.llm["out"] += usage["out"]
                     tag = "llm" if choice == p["default"] else "llm (override)"
-                    d.apply(c["action"], c["arg"], reason, tag, t, p["event"])
-                    self.add_log(p["tick"], d.id, tag, p["event"], c["action"], c["arg"], reason)
+                    if d.apply(c["action"], c["arg"], reason, tag, t, p["event"]):
+                        self.add_log(p["tick"], d.id, tag, p["event"], c["action"], c["arg"], reason)
                 elif time.monotonic() - p["start"] > p["timeout"] + 0.5:
                     d.pending = None
                     self._fallback(d, p, "timeout")
@@ -197,12 +200,13 @@ class Sim:
         c = p["cands"][p["default"]]
         self.llm["fallbacks"] += 1
         self.llm["last_error"] = why
-        d.apply(c["action"], c["arg"], c["note"], f"fallback: {why}", self.tick, p["event"])
-        self.add_log(p["tick"], d.id, f"rules (LLM {why})", p["event"], c["action"], c["arg"], c["note"])
+        if d.apply(c["action"], c["arg"], c["note"], f"fallback: {why}", self.tick, p["event"]):
+            self.add_log(p["tick"], d.id, f"rules (LLM {why})", p["event"], c["action"], c["arg"], c["note"])
 
     # ------------------------------------------------------------ baseline drones
     def _baseline_event(self, d, t, event, arg):
         if event == "LOW_BATTERY":
+            d.needs_orders = False  # don't wait for (or accept) hub orders any more
             d.apply("RETURN_HOME", None, "Low battery: returning home (autonomous safety).", "drone", t, event)
             self.add_log(t, d.id, "drone", event, "RETURN_HOME", None, d.reason)
             return
@@ -279,7 +283,9 @@ class Sim:
             }
 
     def world_json(self):
-        return {"size": GRID_SIZE, "ridges": sorted(self.world.ridges), "base": BASE_POSITION,
+        return {"size": GRID_SIZE, "heights": [v for row in self.world.height for v in row],
+                "sector_size": SECTOR_SIZE, "comms_range": COMMS_RANGE,
+                "base": BASE_POSITION,
                 "rendezvous": RENDEZVOUS_POINT, "sectors": list(SECTOR_LABELS), "seed": self.seed,
                 "mode": self.mode}
 

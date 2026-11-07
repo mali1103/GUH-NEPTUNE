@@ -20,7 +20,7 @@ class Hub:
     def can_link(self, sim, d):
         return (sim.comms_enabled and d.alive
                 and dist(d.pos, self.pos) <= BASE_COMMS_RANGE
-                and self.world.line_of_sight(d.pos, self.pos))
+                and self.world.line_of_sight(d.pos, self.pos, zb=self.world.mast_altitude(self.pos)))
 
     def tick(self, sim, t):
         sim.links = []
@@ -36,7 +36,7 @@ class Hub:
                     self.hiker_position = d.hiker_position
                     sim.add_log(t, "hub", "hub", "REPORT", "", None,
                                 f"Drone {d.id} reported the hiker at {d.hiker_position}.")
-            if not down or d.landed:
+            if not down or d.landed or d.low_batt_done:  # low battery: already heading home
                 continue
             if self.found and not d.hiker_found:
                 d.hiker_found = True

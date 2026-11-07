@@ -17,16 +17,26 @@ python -m venv .venv
 # 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Add your API key to a .env file (NEVER commit this)
-echo ANTHROPIC_API_KEY=sk-ant-... > .env
-
-# 4. Run the server
+# 3. Run the server
 uvicorn server:app --reload
 
-# 5. Open http://localhost:8000
+# 4. Open http://localhost:8000
 ```
 
 The sim also runs with no API key: agents fall back to rules-based decisions.
+
+### Adding your Claude API key
+
+1. Create a key at <https://console.anthropic.com> → **API Keys**.
+2. Create a file called `.env` in the project folder (next to `server.py`) containing one line:
+   ```
+   ANTHROPIC_API_KEY=sk-ant-...your key...
+   ```
+   Easiest on Windows: `notepad .env`, paste the line, save. (The server also copes with the UTF-16 file that PowerShell's `echo ... > .env` writes.)
+3. Restart the server (`.env` is only read at startup).
+4. In the page, set **Agent** to **Claude Haiku (LLM)**. The status tag should say "LLM ready", and the log should start showing `llm` decisions.
+
+`.env` is in `.gitignore`. Never paste the key into code, chat, or a commit.
 
 Headless benchmark (ours vs baseline, rules agent, several seeds):
 
@@ -51,7 +61,7 @@ python bench.py --seeds 5
 
 | File | What it does |
 |---|---|
-| `world.py` | Constants, grid, ridges, hidden hiker, beacon signal, line of sight, sector helpers |
+| `world.py` | Constants, random heightmap terrain, hidden hiker, beacon signal, line of sight, sector helpers |
 | `drone.py` | Drone autopilot: position, battery, movement, local map, gossip merge, event detection |
 | `agent.py` | Candidate builder, `decide_rules`, LLM agent (one per drone) with fallback |
 | `baseline.py` | Central-hub baseline mode, for comparison |
@@ -64,44 +74,60 @@ python bench.py --seeds 5
 
 ## The world
 
-- **Grid:** 30 × 30 cells. Each cell is `open` or `ridge`.
-- **Sectors:** 9 sectors of 10 × 10 (3 × 3, labelled `A`–`I`, row-major: `A B C` is the top row, `G H I` the bottom row).
-- **Base:** `BASE_POSITION = (15, 29)`, bottom centre. All drones launch from here and `RETURN_HOME` flies here.
-- **Ridges** block line of sight (and therefore radio). Drones can fly over them. A drone **sitting on a ridge cell** is on high ground and has line of sight to everything (that is what `CLIMB_TO_RELAY` uses).
-- **Hiker:** hidden at a random open cell at least 10 cells from base, unknown to the drones.
-- **Beacon signal:** `strength = max(0, 1 - distance / BEACON_RANGE)`, halved if a ridge blocks line of sight, plus Gaussian noise. Readings below `SIGNAL_THRESHOLD` count as nothing. `SIGNAL_DETECTED` needs two readings within 5 ticks (debounces noise spikes), and `FOLLOW_SIGNAL` searches around the strength-weighted centre of recent readings, not a single one.
-- **Found:** a drone finds the hiker when it's within `FIND_RADIUS` cells (Chebyshev distance).
-- **Searching:** a drone marks every cell within `SENSOR_RADIUS` as searched as it flies. Inside a sector it flies a lawnmower pattern that skips rows already known to be searched.
+- **Grid:** 42 × 42 cells, each with a terrain **height** from 0.0 (valley floor) to 1.0 (highest peak).
+- **Terrain:** randomly generated per seed as a sum of Gaussian mountains, a few long ridgelines (the main radio walls) and some rough texture, all scaled with the map size. The base sits in a valley. The UI shows it as a height heatmap with hillshading and contour lines.
+- **Sectors:** 9 sectors of 14 × 14 (3 × 3, labelled `A`–`I`, row-major: `A B C` is the top row, `G H I` the bottom row). 14 = exactly two 7-wide search lanes.
+- **Base:** `BASE_POSITION = (21, 41)`, bottom centre. All drones launch from here and `RETURN_HOME` flies here.
+- **Flying:** drones hug the terrain at `FLIGHT_CLEARANCE` above the ground, so a drone over a peak is high up and one in a valley is low.
+- **Line of sight:** the straight line between two drones' altitudes must clear the terrain at every cell in between. Mountains between drones cut the radio link; climbing to high ground (`CLIMB_TO_RELAY`) restores it. Roughly 40% of drone pairs that are within range are blocked by terrain.
+- **Hiker:** hidden at a random cell (not a summit) at least 14 cells from base, unknown to the drones.
+- **Beacon signal:** `strength = max(0, 1 - distance / BEACON_RANGE)`, halved if terrain blocks line of sight to the hiker, plus Gaussian noise. Readings below `SIGNAL_THRESHOLD` count as nothing. `SIGNAL_DETECTED` needs two readings within 5 ticks (debounces noise spikes), and `FOLLOW_SIGNAL` searches around the strength-weighted centre of recent readings, not a single one.
+- **Found:** a drone finds the hiker when its camera sees it: within `FIND_RADIUS` cells (Chebyshev distance).
 - **Movement:** 1 cell per tick, 8 directions.
 - **Time:** 1 tick = 1 simulated minute. Rendezvous happen at every multiple of `RENDEZVOUS_INTERVAL`.
 - **Battery:** drains `BATTERY_DRAIN` per tick (flying or hovering). `LOW_BATTERY` fires when the battery only covers the trip home plus `BATTERY_RESERVE_TICKS`.
+
+### How a drone searches (two sensors)
+
+1. **Sweep for the beacon, not with the camera.** The beacon is heard from about 4 cells away (3.5 even through a hill), but the camera only sees 1 cell. So drones fly lawnmower lanes **7 cells apart** and mark every cell within `BEACON_CLEAR_RADIUS = 3` as *cleared*: if the hiker were there, the beacon would have been heard. Lanes that are already fully cleared (by this drone or, via gossip, a teammate) are skipped.
+2. **Close in with the camera.** On `SIGNAL_DETECTED` the drone switches to `FOLLOW_SIGNAL` and searches around the readings at camera resolution (`SENSOR_RADIUS = 1`) until it sees the hiker.
+
+On the same 30 seeds this finds the hiker **about 40% sooner** than camera-width lanes (56 vs 98 ticks with perfect radio, 74 vs 132 with a drone killed), with no missed hikers in 150 runs. The cost: more cells are swept twice, because a 7-wide footprint overlaps more when drones transit over each other's ground.
 
 ### Tunable constants (top of `world.py`)
 
 Sized so a full search takes a few hundred ticks, so comms failures actually matter before the hiker is found.
 
 ```python
-GRID_SIZE = 30
-SECTOR_SIZE = 10
+GRID_SIZE = 42
+SECTOR_SIZE = 14
 NUM_DRONES = 3
-SENSOR_RADIUS = 1
-COMMS_RANGE = 12          # cells, drone to drone
-BASE_COMMS_RANGE = 22     # base station mast (baseline mode only)
+SENSOR_RADIUS = 1         # camera: close search when homing in on a signal
+COMMS_RANGE = 15          # cells, drone to drone
+BASE_COMMS_RANGE = 31     # base station mast (baseline mode only)
 PACKET_LOSS = 0.0         # 0.0 - 1.0, controlled by a slider
 BEACON_RANGE = 5
 BEACON_NOISE = 0.05
 SIGNAL_THRESHOLD = 0.15
+BEACON_CLEAR_RADIUS = 3   # search lane half-width: a pass this close would have heard the beacon
 FIND_RADIUS = 1
-RENDEZVOUS_INTERVAL = 45  # ticks
-RENDEZVOUS_POINT = (15, 15)
-LOST_TIMEOUT = 60         # ticks of silence before a teammate is presumed lost (> interval, so rendezvous detects it first)
+RENDEZVOUS_INTERVAL = 60  # ticks
+RENDEZVOUS_POINT = (21, 21)
+RENDEZVOUS_SKIP_IF_HEARD = 15
+LOST_TIMEOUT = 80         # ticks of silence before a teammate is presumed lost (> interval, so rendezvous detects it first)
 MISSED_MEETUP_WAIT = 5    # ticks to wait at the rendezvous for a missing drone
-BASE_POSITION = (15, 29)
-BATTERY_DRAIN = 0.0025    # per tick, i.e. 400 ticks of flight
-BATTERY_RESERVE_TICKS = 12
+BASE_POSITION = (21, 41)
+BATTERY_DRAIN = 0.002     # per tick, i.e. 500 ticks of flight
+BATTERY_RESERVE_TICKS = 15
 SIGNAL_FOLLOW_LIMIT = 40  # ticks before giving up on a signal
-RELAY_HOVER_TICKS = 8     # how long CLIMB_TO_RELAY waits on the ridge
-MAX_TICKS = 900
+RELAY_HOVER_TICKS = 8     # how long CLIMB_TO_RELAY waits on high ground
+MAX_TICKS = 1200
+MAP_SCALE = GRID_SIZE / 30  # terrain features scale with the map
+FLIGHT_CLEARANCE = 0.04   # drones fly this far above the terrain
+MAST_HEIGHT = 0.15        # base station mast (baseline mode)
+NUM_PEAKS = (8, 12)       # round mountains
+NUM_RIDGES = (3, 5)       # long ridgelines
+RELAY_SEARCH_RADIUS = 10  # how far CLIMB_TO_RELAY looks for high ground
 ```
 
 ### Pre-launch plan
@@ -121,11 +147,11 @@ Own sectors bottom to top, then other drones' sectors **in reverse order** (near
 Two drones can exchange messages only if **all** of these hold:
 1. both are alive and comms are enabled
 2. distance ≤ `COMMS_RANGE`
-3. line of sight (no ridge on the straight line between them, unless one of them is on a ridge)
+3. line of sight (no terrain above the straight line between their flying altitudes)
 4. the message isn't dropped (random chance `PACKET_LOSS`, per message, per direction)
 
 When connected, drones **gossip** every tick: each one sends its whole local knowledge and the receiver merges it:
-- `searched`: union of both sets
+- `searched` (beacon-cleared cells): union of both sets
 - `best_signal`: keep the stronger reading
 - `teammates`: for each drone, keep whichever info has the newest `last_heard`; `missed_at` keeps the max
 - `hiker_found`: `True` if either drone knows it
@@ -148,7 +174,7 @@ state = {
     "current_target": "B",
     "my_sectors": ["H", "E", "B"],
     "priority_order": ["H", "E", "B", "A", "C", "D", "F", "G", "I"],
-    "searched_cells": {(0, 0), ...},          # rules may use it; NEVER sent to the LLM
+    "searched_cells": {(0, 0), ...},          # beacon-cleared cells; rules may use it; NEVER sent to the LLM
     "sector_progress": {"A": 1.0, "B": 0.4, ...},
     "best_signal": {"strength": 0.32, "position": (5, 9), "tick": 140},  # or None
     "hiker_found": False,
@@ -160,9 +186,11 @@ state = {
     },
     "in_contact_with": [0],
     "next_rendezvous_tick": 180,
-    "rendezvous_point": (15, 15),
-    "nearest_ridge": (6, 9),
-    "base_position": (15, 29),
+    "rendezvous_point": (21, 21),
+    "height": 0.31,                            # terrain height under the drone
+    "relay_point": (6, 9),                     # best nearby high ground for CLIMB_TO_RELAY
+    "relay_height": 0.74,
+    "base_position": (21, 41),
     "event": "LOST_CONTACT",
     "event_arg": 2,                            # e.g. the teammate id, or None
 }
@@ -187,11 +215,11 @@ state = {
 
 | Action | Argument | Meaning |
 |---|---|---|
-| `SEARCH_SECTION` | sector label | Fly to and lawnmower-search that sector |
-| `FOLLOW_SIGNAL` | none | Leave the pattern, search outward from the strongest recent readings |
+| `SEARCH_SECTION` | sector label | Fly to that sector and sweep it in 7-wide beacon lanes |
+| `FOLLOW_SIGNAL` | none | Leave the lanes, camera-search around the strongest recent readings |
 | `GO_TO_RENDEZVOUS` | none | Fly to the rendezvous point and wait for teammates |
 | `GO_TO_TEAMMATE` | drone id | Fly to a teammate's last known position (e.g. to report a find) |
-| `CLIMB_TO_RELAY` | none | Fly to the nearest ridge cell and hover there to get line of sight |
+| `CLIMB_TO_RELAY` | none | Fly to the best nearby high ground and hover there to get line of sight over the hills |
 | `RETURN_HOME` | none | Fly back to base and land |
 | `HOVER` | none | Baseline only: wait for instructions from the hub |
 
@@ -236,7 +264,7 @@ Benchmarks always use the rules agent, so runs are exactly repeatable per seed. 
 
 ## Baseline: central hub (for comparison)
 
-`baseline.py` runs the same world with a **naive central controller** at the base (mast range `BASE_COMMS_RANGE`, still blocked by ridges):
+`baseline.py` runs the same world with a **naive central controller** at the base (mast range `BASE_COMMS_RANGE`, mast `MAST_HEIGHT` tall, still blocked by mountains):
 - The hub assigns every drone its next sector (each sector is assigned once).
 - A drone that needs instructions but can't reach the hub **hovers and waits**.
 - No drone-to-drone map sharing, no rendezvous, no takeover of lost drones' sectors.
@@ -247,7 +275,7 @@ Benchmarks always use the rules agent, so runs are exactly repeatable per seed. 
 ## Metrics (shown live on the page)
 
 - **Time to find** (ticks) and **time until every live drone knows**
-- **% of mountain searched** (ground truth)
+- **% of mountain searched** (ground truth, beacon-cleared)
 - **% duplicated**: searched cells that were swept by 2 or more different drones
 - **Messages sent / dropped**
 - **LLM calls / fallbacks / average latency / tokens**
@@ -256,7 +284,8 @@ Benchmarks always use the rules agent, so runs are exactly repeatable per seed. 
 
 ## Web UI
 
-- **Canvas:** grid, ridges, searched cells (tinted per drone), drones, comms links (green = delivered, red = dropped), rendezvous point, base, hiker (hidden until found, or "reveal").
+- **Demo seed 18** (the default): the hiker is in sector B, drone 1's last sector. Kill drone 1 around tick 40: ours still finds the hiker, the baseline never does.
+- **Canvas:** terrain height heatmap with contours, unsearched cells dimmed, a dot per searched cell in the colour of the drone that searched it, drones, comms links (green = delivered, red = dropped), rendezvous point, base, hiker (hidden until found, or "reveal").
 - **View as drone N:** show only what that drone knows, to show map merging.
 - **Controls:** start/pause, step, speed, reset (seed), packet-loss slider, comms on/off, kill drone 0/1/2, mode (ours / baseline), agent (rules / LLM), wait-for-agents.
 - **Reasoning log:** `[tick] Drone N (source): ACTION arg: reason`.
@@ -289,7 +318,8 @@ Benchmarks always use the rules agent, so runs are exactly repeatable per seed. 
 
 - During a long blackout, two drones may both take over the same lost sector, which duplicates work until they reconnect.
 - A lone drone following a noisy signal can head the wrong way for a while.
+- Wide beacon lanes trust the beacon: a cell marked *cleared* is never revisited, so a hiker whose beacon failed (or a run of unlucky noise) would be missed. It never happened in 150 benchmark runs, but a real system would do a second, camera-width pass afterwards.
 - Rendezvous trips cost search time. Too frequent is wasteful, too rare means stale maps (mitigated by skipping when already in contact).
 - A drone that is merely out of range at meetup time is presumed lost until it is heard again; its sectors may be searched twice.
-- The signal and terrain model is simplified (2D grid, ridges as walls, ridge cells as high ground).
+- The signal and terrain model is simplified: line of sight over a heightmap, a hard radio range, and no battery cost for climbing.
 - LLM decisions are not reproducible, so the benchmark uses the rules agent.

@@ -1,4 +1,4 @@
-"""World model: grid, ridges, hidden hiker, beacon signal, line of sight, sector helpers.
+"""World model: random heightmap terrain, hidden hiker, beacon signal, line of sight, sectors.
 
 Everything the drones are allowed to know up front (terrain, sectors, base,
 rendezvous plan) lives here as constants/helpers. The hiker position is only
@@ -9,36 +9,41 @@ import random
 from functools import lru_cache
 
 # ---------------------------------------------------------------- constants
-GRID_SIZE = 30
-SECTOR_SIZE = 10
+GRID_SIZE = 42
+SECTOR_SIZE = 14
 SECTOR_LABELS = "ABCDEFGHI"
 NUM_DRONES = 3
-SENSOR_RADIUS = 1
-COMMS_RANGE = 12          # cells, drone to drone
-BASE_COMMS_RANGE = 22     # base station mast (baseline mode only)
+SENSOR_RADIUS = 1         # camera: close search when homing in on a signal
+COMMS_RANGE = 15          # cells, drone to drone
+BASE_COMMS_RANGE = 31     # base station mast (baseline mode only)
 PACKET_LOSS = 0.0         # 0.0 - 1.0, controlled by a slider
 BEACON_RANGE = 5
 BEACON_NOISE = 0.05
 SIGNAL_THRESHOLD = 0.15
+BEACON_CLEAR_RADIUS = 3   # a pass within this distance would have heard the beacon (even through a hill)
 FIND_RADIUS = 1
-RENDEZVOUS_INTERVAL = 45  # ticks
-RENDEZVOUS_POINT = (15, 15)
+RENDEZVOUS_INTERVAL = 60  # ticks
+RENDEZVOUS_POINT = (21, 21)
 RENDEZVOUS_SKIP_IF_HEARD = 15  # skip the trip if every live teammate was heard this recently
-LOST_TIMEOUT = 60        # ticks of silence before a teammate is presumed lost
+LOST_TIMEOUT = 80         # ticks of silence before a teammate is presumed lost (> interval)
 MISSED_MEETUP_WAIT = 5    # ticks to wait at the rendezvous for a missing drone
-BASE_POSITION = (15, 29)
-BATTERY_DRAIN = 0.0025    # per tick -> 400 ticks of flight
-BATTERY_RESERVE_TICKS = 12
+BASE_POSITION = (21, 41)
+BATTERY_DRAIN = 0.002     # per tick -> 500 ticks of flight
+BATTERY_RESERVE_TICKS = 15
 SIGNAL_FOLLOW_LIMIT = 40
 RELAY_HOVER_TICKS = 8
-MAX_TICKS = 900
-NUM_RIDGES = 7
-RIDGE_LENGTH = (8, 16)
+MAX_TICKS = 1200
+
+# Terrain: heights are 0.0 (valley floor) .. 1.0 (highest peak).
+MAP_SCALE = GRID_SIZE / 30  # terrain features scale with the map
+FLIGHT_CLEARANCE = 0.04   # drones hug the terrain at this height above ground
+MAST_HEIGHT = 0.15        # base station mast (baseline mode)
+NUM_PEAKS = (8, 12)       # round mountains
+NUM_RIDGES = (3, 5)       # long ridgelines: the main radio walls
+RELAY_SEARCH_RADIUS = 10  # CLIMB_TO_RELAY looks this far for high ground
 
 # Pre-launch plan: each drone owns one column, searched bottom (near base) to top.
 OWN_SECTORS = {0: ["G", "D", "A"], 1: ["H", "E", "B"], 2: ["I", "F", "C"]}
-
-DIRS8 = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)]
 
 
 # ---------------------------------------------------------------- geometry
@@ -69,6 +74,14 @@ def cells_in_radius(c, r):
         for y in range(c[1] - r, c[1] + r + 1)
         if in_bounds((x, y))
     )
+
+
+@lru_cache(maxsize=None)
+def cells_in_disk(c, r):
+    """Cells within Euclidean distance ~r (the beacon 'heard it if it was there' footprint)."""
+    lim = r * r + 1
+    return tuple(p for p in cells_in_radius(c, r)
+                 if (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2 <= lim)
 
 
 @lru_cache(maxsize=None)
@@ -117,9 +130,9 @@ def sector_center(label):
 
 @lru_cache(maxsize=None)
 def sector_rows(label):
-    """Lawnmower rows: each row's sensor band covers rows y-R..y+R."""
+    """Lawnmower rows spaced at beacon width: each row's band covers rows y-R..y+R."""
     _, y0, _, y1 = sector_bounds(label)
-    R = SENSOR_RADIUS
+    R = BEACON_CLEAR_RADIUS
     rows, r = [], y0 + R
     while True:
         rr = min(r, y1 - 1 - R)
@@ -146,53 +159,85 @@ class World:
     def __init__(self, seed=42):
         self.seed = seed
         rng = random.Random(seed)
-        self.ridges = self._make_ridges(rng)
+        self.height = self._make_terrain(rng)      # height[y][x] in 0..1
         self.hiker = self._place_hiker(rng)
         self.noise_rng = random.Random(seed * 7919 + 1)
+        self._relay_cache = {}
 
-    def _make_ridges(self, rng):
-        ridges = set()
-        protected = set(cells_in_radius(BASE_POSITION, 1))
-        for _ in range(NUM_RIDGES):
-            x, y = rng.randrange(GRID_SIZE), rng.randrange(3, GRID_SIZE - 4)
-            d = rng.choice([0, 1, 7, 0, 2])  # mostly east-west ridges
-            for _ in range(rng.randint(*RIDGE_LENGTH)):
-                if rng.random() < 0.3:
-                    d = (d + rng.choice([-1, 1])) % 8
-                dx, dy = DIRS8[d]
-                for c in ((x, y), (x + dx, y)):  # 4-connected walls: no diagonal gaps
-                    if in_bounds(c) and c not in protected:
-                        ridges.add(c)
-                x, y = x + dx, y + dy
-                if not in_bounds((x, y)):
-                    break
-        return ridges
+    # ------------------------------------------------------------ terrain
+    @staticmethod
+    def _make_terrain(rng):
+        g, s = GRID_SIZE, MAP_SCALE
+        h = [[0.0] * g for _ in range(g)]
+
+        def blob(cx, cy, amp, sx, sy, theta):
+            ct, st = math.cos(theta), math.sin(theta)
+            for y in range(g):
+                for x in range(g):
+                    u = (x - cx) * ct + (y - cy) * st
+                    v = -(x - cx) * st + (y - cy) * ct
+                    h[y][x] += amp * math.exp(-0.5 * ((u / sx) ** 2 + (v / sy) ** 2))
+
+        for _ in range(rng.randint(*NUM_PEAKS)):          # round mountains
+            blob(rng.uniform(0, g), rng.uniform(0, g - 6 * s), rng.uniform(0.5, 1.0),
+                 rng.uniform(2.5, 5) * s, rng.uniform(2.5, 5) * s, 0)
+        for _ in range(rng.randint(*NUM_RIDGES)):         # long ridgelines
+            blob(rng.uniform(4 * s, g - 4 * s), rng.uniform(3 * s, g - 8 * s), rng.uniform(0.7, 1.0),
+                 rng.uniform(6, 11) * s, rng.uniform(1.3, 2.2) * s, rng.uniform(-0.6, 0.6))
+        for _ in range(int(25 * s * s)):                  # rough texture
+            blob(rng.uniform(0, g), rng.uniform(0, g), rng.uniform(0.05, 0.15),
+                 rng.uniform(1, 2), rng.uniform(1, 2), 0)
+        blob(BASE_POSITION[0], BASE_POSITION[1], -0.8, 5 * s, 4 * s, 0)  # base sits in a valley
+
+        lo = min(min(r) for r in h)
+        hi = max(max(r) for r in h)
+        return tuple(tuple(round((v - lo) / (hi - lo), 3) for v in row) for row in h)
 
     def _place_hiker(self, rng):
         while True:
             c = (rng.randrange(GRID_SIZE), rng.randrange(GRID_SIZE))
-            if c not in self.ridges and cheb(c, BASE_POSITION) >= 10:
+            if self.h(c) < 0.85 and cheb(c, BASE_POSITION) >= GRID_SIZE // 3:
                 return c
 
-    def is_ridge(self, c):
-        return c in self.ridges
+    def h(self, c):
+        return self.height[c[1]][c[0]]
 
-    def line_of_sight(self, a, b):
-        if a in self.ridges or b in self.ridges:  # on high ground
+    def altitude(self, c):
+        """Flying altitude of a drone over cell c."""
+        return self.h(c) + FLIGHT_CLEARANCE
+
+    # ------------------------------------------------------------ line of sight
+    def line_of_sight(self, a, b, za=None, zb=None):
+        """True if the straight line from a (altitude za) to b (altitude zb) clears the terrain.
+        Defaults to drone flying altitude at both ends."""
+        pts = bresenham(a, b)
+        n = len(pts) - 1
+        if n <= 1:
             return True
-        return not any(c in self.ridges for c in bresenham(a, b)[1:-1])
+        za = self.altitude(a) if za is None else za
+        zb = self.altitude(b) if zb is None else zb
+        for i in range(1, n):
+            if self.h(pts[i]) > za + (zb - za) * i / n:
+                return False
+        return True
+
+    def mast_altitude(self, c):
+        return self.h(c) + MAST_HEIGHT
 
     def beacon_reading(self, pos):
         s = max(0.0, 1.0 - dist(pos, self.hiker) / BEACON_RANGE)
-        if s > 0 and not self.line_of_sight(pos, self.hiker):
-            s *= 0.5
+        if s > 0 and not self.line_of_sight(pos, self.hiker, zb=self.h(self.hiker) + 0.01):
+            s *= 0.5  # mountain between drone and hiker
         s += self.noise_rng.gauss(0, BEACON_NOISE)
         return round(s, 3) if s >= SIGNAL_THRESHOLD else 0.0
 
     def hiker_within(self, pos, r=FIND_RADIUS):
         return cheb(pos, self.hiker) <= r
 
-    def nearest_ridge(self, pos):
-        if not self.ridges:
-            return None
-        return min(self.ridges, key=lambda c: (cheb(pos, c), c))
+    def relay_point(self, pos):
+        """Best nearby high ground: tall, but not too far to fly to."""
+        if pos not in self._relay_cache:
+            self._relay_cache[pos] = max(
+                cells_in_radius(pos, RELAY_SEARCH_RADIUS),
+                key=lambda c: (self.h(c) - 0.03 * cheb(pos, c), -c[0], -c[1]))
+        return self._relay_cache[pos]

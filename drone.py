@@ -10,7 +10,7 @@ from world import (
     BASE_POSITION, BATTERY_DRAIN, BATTERY_RESERVE_TICKS, BEACON_RANGE, LOST_TIMEOUT,
     MISSED_MEETUP_WAIT, OWN_SECTORS, RELAY_HOVER_TICKS, RENDEZVOUS_INTERVAL,
     RENDEZVOUS_POINT, SECTOR_LABELS, SECTOR_SIZE, SENSOR_RADIUS, SIGNAL_FOLLOW_LIMIT,
-    cells_in_radius, cheb, in_bounds, priority_order, sector_bounds, sector_of,
+    BEACON_CLEAR_RADIUS, cells_in_disk, cells_in_radius, cheb, in_bounds, priority_order, sector_bounds, sector_of,
     sector_rows, step_toward,
 )
 
@@ -35,7 +35,8 @@ class Drone:
         self.source = "plan"
 
         # knowledge
-        self.searched = set()
+        self.searched = set()            # cells cleared by the beacon sweep (shared by gossip)
+        self.seen_close = set()          # cells seen by the camera (close search near a signal)
         self.sector_count = {s: 0 for s in SECTOR_LABELS}
         self.my_cells = set()            # ground truth: cells this drone physically swept
         self.best_signal = None
@@ -53,6 +54,7 @@ class Drone:
         self.cur_row = None
         self.follow_start = 0
         self.relay_ticks = 0
+        self.relay_target = None
         self.rdv_target = None           # the scheduled rendezvous tick we are heading to
         self.handled_rdv = None
         self.auto_event = None
@@ -125,7 +127,7 @@ class Drone:
     # ------------------------------------------------------------ autopilot
     def _search_target(self, s):
         x0, y0, x1, y1 = sector_bounds(s)
-        R = SENSOR_RADIUS
+        R = BEACON_CLEAR_RADIUS
 
         def band(r):
             return [(x, y) for y in range(max(y0, r - R), min(y1, r + R + 1))
@@ -156,7 +158,7 @@ class Drone:
         cy = round(sum(s * s * p[1] for s, p, _ in recent) / w)
         center = (cx, cy)
         r = BEACON_RANGE - 1
-        cands = [c for c in cells_in_radius(center, r) if c not in self.searched]
+        cands = [c for c in cells_in_radius(center, r) if c not in self.seen_close]
         if not cands:
             return None
         return min(cands, key=lambda c: (2 * cheb(c, center) + cheb(c, self.pos), c))
@@ -178,15 +180,14 @@ class Drone:
                 return self.pos, "ARRIVED"
             return tp, None
         if a == "CLIMB_TO_RELAY":
-            ridge = self.world.nearest_ridge(self.pos)
-            if ridge is None:
-                return self.pos, "ARRIVED"
-            if self.pos == ridge or self.world.is_ridge(self.pos):
+            if self.relay_target is None:
+                self.relay_target = self.world.relay_point(self.pos)
+            if self.pos == self.relay_target:
                 self.relay_ticks += 1
-                if self.relay_ticks >= RELAY_HOVER_TICKS:
+                if self.relay_ticks >= RELAY_HOVER_TICKS or self.in_contact:
                     return self.pos, "ARRIVED"
                 return self.pos, None
-            return ridge, None
+            return self.relay_target, None
         if a == "RETURN_HOME":
             return BASE_POSITION, None
         return self.pos, None  # HOVER
@@ -211,9 +212,10 @@ class Drone:
             return
         if self.action == "RETURN_HOME" and self.pos == BASE_POSITION:
             self.landed = True
-        cells = cells_in_radius(self.pos, SENSOR_RADIUS)
-        self.add_cells(cells)
-        self.my_cells.update(cells)
+        cleared = cells_in_disk(self.pos, BEACON_CLEAR_RADIUS)  # would have heard the beacon here
+        self.add_cells(cleared)
+        self.my_cells.update(cleared)
+        self.seen_close.update(cells_in_radius(self.pos, SENSOR_RADIUS))
         reading = self.world.beacon_reading(self.pos)
         if reading > 0:
             self.readings.append((reading, self.pos, tick))
@@ -317,13 +319,20 @@ class Drone:
             "in_contact_with": sorted(self.in_contact),
             "next_rendezvous_tick": self.next_rendezvous(tick),
             "rendezvous_point": RENDEZVOUS_POINT,
-            "nearest_ridge": self.world.nearest_ridge(self.pos),
+            "height": self.world.h(self.pos),
+            "relay_point": self.world.relay_point(self.pos),
+            "relay_height": self.world.h(self.world.relay_point(self.pos)),
             "base_position": BASE_POSITION,
             "event": event,
             "event_arg": event_arg,
         }
 
     def apply(self, action, arg, reason, source, tick, event=None):
+        """Carry out a decision. Returns False if refused by the battery safety lock:
+        once LOW_BATTERY has fired, nothing (late LLM answer, hub order) can send the drone
+        anywhere but home."""
+        if self.low_batt_done and action != "RETURN_HOME":
+            return False
         if action == "GO_TO_RENDEZVOUS" and self.action != "GO_TO_RENDEZVOUS":
             self.rdv_target = self.next_rendezvous(tick) if tick % RENDEZVOUS_INTERVAL else tick
             if self.handled_rdv is not None and self.handled_rdv > tick:
@@ -332,6 +341,7 @@ class Drone:
             self.follow_start = tick
         if action == "CLIMB_TO_RELAY":
             self.relay_ticks = 0
+            self.relay_target = self.world.relay_point(self.pos)
         if action == "SEARCH_SECTION" and arg != self.arg:
             self.cur_row = None
         if action != "FOLLOW_SIGNAL" and self.action == "FOLLOW_SIGNAL":
@@ -339,3 +349,4 @@ class Drone:
         self.action, self.arg, self.reason, self.source = action, arg, reason, source
         self.memory.append({"tick": tick, "event": event, "action": action, "arg": arg,
                             "reason": reason[:100]})
+        return True

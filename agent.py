@@ -12,8 +12,8 @@ import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from world import (OWN_SECTORS, RENDEZVOUS_SKIP_IF_HEARD, SECTOR_LABELS, cheb, priority_order,
-                   sector_center)
+from world import (GRID_SIZE, OWN_SECTORS, RENDEZVOUS_SKIP_IF_HEARD, SECTOR_LABELS, SECTOR_SIZE,
+                   cheb, priority_order, sector_center)
 
 ACTIONS = ["SEARCH_SECTION", "FOLLOW_SIGNAL", "GO_TO_RENDEZVOUS", "GO_TO_TEAMMATE",
            "CLIMB_TO_RELAY", "RETURN_HOME"]
@@ -219,9 +219,12 @@ def build_candidates(state):
             tp = tuple(mates[j]["position"])
             add("GO_TO_TEAMMATE", j, f"Drone {j} doesn't know about the hiker; last seen at {tp} (tick {mates[j]['last_heard']}), {cheb(pos, tp)} ticks away.")
 
-    ridge = state.get("nearest_ridge")
-    if ridge and any(j not in contact for j in alive) and cheb(pos, ridge) <= 6:
-        add("CLIMB_TO_RELAY", None, f"Ridge at {tuple(ridge)} is {cheb(pos, ridge)} ticks away; high ground gives line of sight to out-of-contact teammates.")
+    relay = state.get("relay_point")
+    if relay and any(j not in contact for j in alive) \
+            and state["relay_height"] - state["height"] >= 0.15:
+        add("CLIMB_TO_RELAY", None,
+            f"High ground at {tuple(relay)} (height {int(state['relay_height'] * 100)}%, I'm at "
+            f"{int(state['height'] * 100)}%) is {cheb(pos, relay)} ticks away; altitude gives radio line of sight over the hills.")
 
     home = tuple(state["base_position"])
     add("RETURN_HOME", None, f"Base is {cheb(pos, home)} ticks away; battery {int(state['battery'] * 100)}%.")
@@ -235,9 +238,9 @@ def decide_rules(state):
 
 
 # ====================================================================== LLM
-SYSTEM_PROMPT = """You are the onboard decision agent of one search-and-rescue drone in a team of three, searching a 30x30 mountain grid (9 sectors A-I, 10x10 each; A B C is the top row, G H I the bottom row next to base) for a lost hiker carrying a radio beacon.
+SYSTEM_PROMPT = f"""You are the onboard decision agent of one search-and-rescue drone in a team of three, searching a {GRID_SIZE}x{GRID_SIZE} mountain grid (9 sectors A-I, {SECTOR_SIZE}x{SECTOR_SIZE} each; A B C is the top row, G H I the bottom row next to base) for a lost hiker carrying a radio beacon. Drones sweep in wide lanes listening for the beacon, then close in with the camera when they hear it.
 
-There is no central controller. You only know what your own drone has sensed or heard from teammates over a radio that drops out (range limit, ridges block line of sight, packet loss). Teammates you can't hear are assumed to be following their last known plan until they are presumed lost.
+There is no central controller. You only know what your own drone has sensed or heard from teammates over a radio that drops out (range limit, mountains between drones block line of sight, packet loss). Drones fly just above the terrain, so a drone on high ground can talk over the hills. Teammates you can't hear are assumed to be following their last known plan until they are presumed lost.
 
 Shared goal: find the hiker as fast as possible, cover the mountain with as little duplicated searching as possible, and make sure every live drone learns when the hiker is found.
 
@@ -286,6 +289,7 @@ def llm_payload(state, cands, default, memory):
         "event_arg": state["event_arg"],
         "position": list(state["position"]),
         "battery_pct": int(state["battery"] * 100),
+        "terrain_height_pct": int(state["height"] * 100),
         "doing_now": {"action": state["current_action"], "arg": state["current_target"]},
         "my_sectors": state["my_sectors"],
         "sector_progress_pct": {s: int(p * 100) for s, p in state["sector_progress"].items()},

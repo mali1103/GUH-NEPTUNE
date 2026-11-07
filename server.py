@@ -2,20 +2,33 @@
 
     uvicorn server:app --reload
 """
+import io
 import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+
+def _load_env():
+    """Load .env whatever editor/shell wrote it. Windows PowerShell's `echo x > .env`
+    writes UTF-16 or UTF-8 with a BOM, which plain load_dotenv() silently misreads."""
+    p = Path(__file__).parent / ".env"
+    if not p.exists():
+        return
+    raw = p.read_bytes()
+    enc = "utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8-sig"
+    load_dotenv(stream=io.StringIO(raw.decode(enc)))
+
+
+_load_env()
 
 from fastapi import Body, FastAPI  # noqa: E402
 from fastapi.responses import FileResponse  # noqa: E402
 
 from sim import Sim, benchmark  # noqa: E402
 
-sim = Sim(seed=22, mode="ours")  # demo seed: hiker in sector B, drone 1's last sector
+sim = Sim(seed=18, mode="ours")  # demo seed: hiker in sector B, drone 1's last sector
 STATIC = Path(__file__).parent / "static"
 
 
