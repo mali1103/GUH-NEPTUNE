@@ -431,7 +431,7 @@ Default seed **23** is typical of the benchmark averages: ours finds the hiker a
 - **Pull before you start, push often.**
 - **Code freeze at 17:15.** After that, only bug fixes.
 
-## Known limitations (be honest in the pitch)
+## Known limitations
 
 - During a long blackout, two drones may both take over the same lost sector, which duplicates work until they reconnect.
 - A lone drone following a noisy signal can head the wrong way for a while.
